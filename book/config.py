@@ -26,7 +26,7 @@ class Config:
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    JWT_SECRET_KEY = os.getenv("TV7yFDizlFFTLYtttcSh9I4Y0gZT2-a5j65uJJB4938")
+    JWT_SECRET_KEY = "TV7yFDizlFFTLYtttcSh9I4Y0gZT2-a5j65uJJB4938"
 
     SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
     SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
