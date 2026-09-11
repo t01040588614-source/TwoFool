@@ -33,3 +33,8 @@ pip install -r requirements.txt
 - 페이지가 안 뜨면 서버 콘솔에 에러가 있는지 확인합니다.
 - 결제창이 안 뜨면 `.env`의 토스 키가 실제 테스트 키인지 확인합니다.
 - 실행 중 포트 충돌이 있으면 기존 5001 포트 사용 프로세스를 종료 후 재실행합니다
+
+## 7) Streamlit Community Cloud로 간단히 배포하기
+- 실시간 관제·로그인·결제 없이 검색/예매/대시보드 요약만 필요하면
+  `streamlit_app/` 폴더의 단순화 버전을 https://share.streamlit.io 에
+  바로 배포할 수 있습니다. 자세한 방법은 `streamlit_app/README.md` 참고.
