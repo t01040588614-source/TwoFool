@@ -1,0 +1,43 @@
+SCMAGLEV 기차예매 프로젝트 분석
+
+1) 프로젝트 개요
+- 승객 예매 서비스와 관제 대시보드를 통합한 철도 플랫폼
+- 서울권 시범운영을 기반으로 전국 확장 가능한 구조 적용
+- 예매/결제/재시도/취소/운영로그/ACK까지 실무형 워크플로우 구현
+
+2) 주요 기술 스택
+- Backend: Flask, SQLAlchemy, Flask-JWT-Extended, Flask-SocketIO
+- Frontend: HTML/CSS/Vanilla JS, Jinja2 템플릿
+- DB: SQLite(개발)
+- Test: Pytest
+
+3) 핵심 기능
+- 회원가입/로그인(JWT)
+- 열차 검색 및 좌석 선택(호차 탭, A/B/C/D 라벨)
+- 예약 상태 분리(pending/paid/failed/expired/refunded)
+- 결제 실패 재시도 및 만료 카운트다운
+- 실시간 열차 위치/운행 상태 시각화
+- 이벤트 로그 필터 및 ACK 처리(권한 기반)
+- 혼잡도 예측(ML/DL 비교 + Ensemble)
+
+4) 결제 연동 요약
+- TossPayments 테스트 결제창 연동
+- prepare/confirm API로 주문/금액 검증
+- 키 유효성 검증 강화(예시값/축약값 차단)
+
+5) 안정성 및 예외 처리
+- SQLite lock 대응(commit retry)
+- 타임존 비교 이슈 보정(UTC 정규화)
+- 결제 실패 시 사용자 메시지와 재시도 경로 제공
+
+6) 테스트 결과
+- 핵심 시나리오 테스트 통과: 15 passed
+- 예매/결제/재시도/로그/ACK 흐름 검증 완료
+
+7) 실행 안내(요약)
+- 백엔드 폴더에서 의존성 설치: pip install -r requirements.txt
+- .env 설정(JWT 필수, 토스 테스트키 선택)
+- run_server.bat 실행
+- 접속:
+  - 승객: http://127.0.0.1:5001/
+  - 관제: http://127.0.0.1:5001/dashboard
