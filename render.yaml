@@ -1,0 +1,19 @@
+# Render Blueprint — Mood Code(가구) 와 동일 Docker 방식
+services:
+  - type: web
+    name: scmaglev
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./백엔드 프로젝트 파일/Dockerfile
+    dockerContext: ./백엔드 프로젝트 파일
+    healthCheckPath: /api/health
+    envVars:
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: SCMAGLEV_MAX_TRACKED_TRAINS
+        value: "200"
+      - key: TOSS_PAYMENTS_MOCK_ONLY
+        value: "1"
+      - key: OPENAI_ENABLED
+        value: auto
