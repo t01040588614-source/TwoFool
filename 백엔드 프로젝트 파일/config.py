@@ -10,11 +10,20 @@ BASE_DIR = os.path.abspath(
 )
 
 
+def _normalize_database_url(raw_url):
+    if not raw_url:
+        return None
+    # Render/Heroku Postgres URL 호환
+    if raw_url.startswith("postgres://"):
+        return raw_url.replace("postgres://", "postgresql://", 1)
+    return raw_url
+
+
 class Config:
 
-    SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL") or (
-        f"sqlite:///{os.path.join(BASE_DIR, 'app.db')}"
-    )
+    SQLALCHEMY_DATABASE_URI = _normalize_database_url(
+        os.getenv("DATABASE_URL")
+    ) or f"sqlite:///{os.path.join(BASE_DIR, 'app.db')}"
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 

@@ -4806,21 +4806,23 @@ start_location_simulator()
 
 if __name__ == "__main__":
 
-    print("[SCMAGLEV] 서버 시작: http://127.0.0.1:5001/", flush=True)
-    print("[SCMAGLEV] 관제 대시보드: http://127.0.0.1:5001/dashboard", flush=True)
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "5001"))
+    print(f"[SCMAGLEV] 서버 시작: http://{host}:{port}/", flush=True)
+    print(f"[SCMAGLEV] 관제 대시보드: http://{host}:{port}/dashboard", flush=True)
     print(format_openai_boot_message(), flush=True)
 
     if socketio is not None:
         socketio.run(
             app,
-            host="127.0.0.1",
-            port=5001,
+            host=host,
+            port=port,
             debug=False,
             allow_unsafe_werkzeug=True,
         )
     else:
         app.run(
-            host="127.0.0.1",
-            port=5001,
+            host=host,
+            port=port,
             debug=False
         )
