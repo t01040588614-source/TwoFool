@@ -76,13 +76,13 @@ def _rule_based_chat(message, context):
     schedules = context.get("schedules") or []
     trust = context.get("control_trust") or {}
 
-    if any(word in message for word in ("안녕", "hello", "hi")):
+    if any(word in lower for word in ("안녕", "hello", "hi")):
         return (
             "안녕하세요! SCMagLEV AI 여행 도우미입니다.\n"
             "출발·도착역을 알려주시면 열차를 찾아드리고, 예매·지연·환불도 안내해 드릴게요."
         )
 
-    if any(word in message for word in ("환불", "취소", "환급")):
+    if any(word in lower for word in ("환불", "취소", "환급")):
         return (
             "**예약 취소·환불**\n"
             "- 예약 확인·취소 메뉴에서 본인 예약을 선택해 취소할 수 있습니다.\n"
@@ -90,7 +90,7 @@ def _rule_based_chat(message, context):
             "- 결제 대기 중인 예약은 마감 전까지 결제를 완료하거나 자동 취소됩니다."
         )
 
-    if any(word in message for word in ("예매", "결제", "승차권", "티켓")):
+    if any(word in lower for word in ("예매", "결제", "승차권", "티켓")):
         return (
             "**승차권 예매 방법**\n"
             "1. 승차권 예매 탭에서 출발·도착역과 날짜를 선택\n"
@@ -99,7 +99,7 @@ def _rule_based_chat(message, context):
             "지금 화면의 출발·도착역을 기준으로도 바로 검색해 드릴 수 있어요."
         )
 
-    if any(word in message for word in ("지연", "운행", "고장", "현황", "상황")):
+    if any(word in lower for word in ("지연", "운행", "고장", "현황", "상황")):
         risk = trust.get("delay_risk") or "LOW"
         line = trust.get("message_line") or "관제 연동 데이터를 확인 중입니다."
         risk_label = {"HIGH": "높음", "MEDIUM": "보통", "LOW": "낮음"}.get(risk, risk)
@@ -126,7 +126,7 @@ def _rule_based_chat(message, context):
             "출발역·도착역 이름을 다시 확인하거나, 예매 화면에서 날짜를 바꿔 검색해 보세요."
         )
 
-    if any(word in message for word in ("역", "노선", "어디")):
+    if any(word in lower for word in ("역", "노선", "어디")):
         names = context.get("station_names") or []
         preview = ", ".join(names[:12])
         suffix = " …" if len(names) > 12 else ""
@@ -161,14 +161,15 @@ def _rule_based_dashboard_chat(message, context):
     disrupted = int(status.get("disrupted", 0) or 0)
     arrived = int(status.get("arrived", 0) or fleet.get("arrived", 0) or 0)
     tracked = dashboard.get("tracked_train_count")
+    lower = message.lower()
 
-    if any(word in message for word in ("안녕", "hello", "hi")):
+    if any(word in lower for word in ("안녕", "hello", "hi")):
         return (
             "안녕하세요! SCMagLEV **관제 AI**입니다.\n"
             "운행 현황, 지연·고장, ACK 우선순위, 승객 안내 문구를 물어보세요."
         )
 
-    if any(word in message for word in ("인수인계", "교대", "핸드오버")):
+    if any(word in lower for word in ("인수인계", "교대", "핸드오버")):
         alarm_lines = "\n".join(f"- {row.get('message', '')}" for row in alarms[:3]) or "- 특이 알람 없음"
         return (
             f"**인수인계 요약**\n"
@@ -179,7 +180,7 @@ def _rule_based_dashboard_chat(message, context):
             "「✨ AI 인수인계」 버튼으로 상세 초안을 생성할 수 있습니다."
         )
 
-    if any(word in message for word in ("지연", "운행", "현황", "상황")):
+    if any(word in lower for word in ("지연", "운행", "현황", "상황")):
         lines = []
         if delayed:
             for row in delayed[:3]:
@@ -198,7 +199,7 @@ def _rule_based_dashboard_chat(message, context):
             f"**지연/주의 열차**\n{body}"
         )
 
-    if any(word in message for word in ("고장", "fault", "복구")):
+    if any(word in lower for word in ("고장", "fault", "복구")):
         if faults:
             body = "\n".join(
                 f"- {row.get('train_number', '열차')}: {row.get('fault', {}).get('label', '고장')}"
@@ -208,7 +209,7 @@ def _rule_based_dashboard_chat(message, context):
             body = "- 활성 고장 열차 없음"
         return f"**고장/복구 현황**\n{body}\n「🔧 고장 복구」 또는 AI 복구 안내 버튼을 활용하세요."
 
-    if any(word in message for word in ("승객", "안내", "공지", "방송")):
+    if any(word in lower for word in ("승객", "안내", "공지", "방송")):
         return (
             "**승객 안내**\n"
             "- 「✨ AI 지연안내 발송」「✨ AI 복구안내 발송」으로 초안 생성·발송\n"
@@ -216,7 +217,7 @@ def _rule_based_dashboard_chat(message, context):
             f"- 승객 앱 신뢰: {trust.get('message_line', '관제 연동')}"
         )
 
-    if any(word in message for word in ("ack", "ACK", "이벤트", "알람")):
+    if any(word in lower for word in ("ack", "이벤트", "알람")):
         if alarms:
             body = "\n".join(f"- [{row.get('severity', 'info')}] {row.get('message', '')}" for row in alarms[:4])
         else:

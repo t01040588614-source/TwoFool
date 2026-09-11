@@ -1064,20 +1064,25 @@ def ensure_demo_fault_trains():
 
 def seed_default_operator_account():
     username = os.getenv("CONTROLLER_USERNAME", "gygs1010")
-    password = os.getenv("CONTROLLER_PASSWORD", "zxc123123")
+    # CONTROLLER_PASSWORD가 명시적으로 설정된 경우에만 비밀번호를 강제 반영한다.
+    # (이 값이 없다고 해서 매번 기본 비밀번호로 되돌리면, 관제 계정이
+    #  /api/users/me 로 직접 바꾼 비밀번호가 서버 재시작마다 초기화돼버린다.)
+    password_override = os.getenv("CONTROLLER_PASSWORD")
     email = os.getenv("CONTROLLER_EMAIL",
                       "gygs1010@scmaglev.local").strip().lower()
-    hashed_password = generate_password_hash(password)
 
     user = User.query.filter_by(username=username).first()
     if user:
-        user.password = hashed_password
+        if password_override:
+            user.password = generate_password_hash(password_override)
         user.role = "controller"
         if user.email != email:
             email_owner = User.query.filter_by(email=email).first()
             if not email_owner or email_owner.id == user.id:
                 user.email = email
     else:
+        password = password_override or "zxc123123"
+        hashed_password = generate_password_hash(password)
         existing_email = User.query.filter_by(email=email).first()
         if existing_email:
             email = f"{username}@scmaglev.local"

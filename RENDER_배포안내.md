@@ -8,7 +8,7 @@
 ## 한 번에 배포 (가장 쉬움)
 
 1. **Docker Desktop** 실행 (Engine running)
-2. `백엔드 프로젝트 파일\실행_Render배포.bat` 더블클릭
+2. `book\실행_Render배포.bat` 더블클릭
 3. Docker Hub 로그인 (gygs1090) — 가구 사이트 때 썼던 계정
 4. Render API Key 입력 (`rnd_...`) — 가구 사이트 때 썼던 키 재사용 가능
 5. 2~5분 후 URL 확인:
@@ -21,7 +21,7 @@
 
 ### 1) Docker 빌드 + Hub push
 ```powershell
-cd "백엔드 프로젝트 파일"
+cd "book"
 .\scripts\deploy-docker.ps1 -Push
 ```
 → `docker.io/gygs1090/scmaglev:latest`

@@ -5,8 +5,8 @@ services:
     runtime: docker
     plan: free
     region: singapore
-    dockerfilePath: ./백엔드 프로젝트 파일/Dockerfile
-    dockerContext: ./백엔드 프로젝트 파일
+    dockerfilePath: ./book/Dockerfile
+    dockerContext: ./book
     healthCheckPath: /api/health
     envVars:
       - key: JWT_SECRET_KEY

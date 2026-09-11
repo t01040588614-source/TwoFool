@@ -1,6 +1,5 @@
 import json
-from urllib import error as urllib_error
-from urllib import request as urllib_request
+from urllib import error as urllib_error, request as urllib_request
 
 from config import Config
 from openai_config import get_openai_status, is_openai_enabled

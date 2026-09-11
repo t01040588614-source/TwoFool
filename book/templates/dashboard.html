@@ -3991,7 +3991,14 @@
           state.mapView.trainLayer.bringToFront();
         }
         if (state.mapView.trainLayer?.refreshClusters) {
-          state.mapView.trainLayer.refreshClusters();
+          // 클러스터 아이콘 갱신은 부가 기능이므로 실패해도 지도 렌더링 자체는 성공 처리한다.
+          // (Leaflet.markercluster가 초기 렌더 시점에 _topClusterLevel을
+          //  아직 준비하지 못해 예외를 던지는 경우가 있음)
+          try {
+            state.mapView.trainLayer.refreshClusters();
+          } catch (clusterError) {
+            console.warn("marker cluster refresh skipped", clusterError);
+          }
         }
         fitDashboardMapBounds(false);
         state.mapView.mapReady = true;
