@@ -1,0 +1,410 @@
+/**
+ * SCMAGLEV shared UI components
+ * Works with tokens.css theme variables
+ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+.hidden { display: none !important; }
+
+/* ── Base typography ── */
+body {
+  font-family: var(--font-sans);
+  line-height: var(--line-height);
+}
+
+h1, h2, h3, h4 {
+  line-height: var(--line-height-heading);
+}
+
+/* ── Buttons ── */
+button,
+.ui-btn,
+.search-cta {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 10px 14px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--btn-primary-text);
+  background: var(--btn-primary-bg);
+  transition:
+    transform var(--motion-fast),
+    box-shadow var(--motion-fast),
+    background var(--motion-fast),
+    border-color var(--motion-fast);
+}
+
+button:not(:disabled):hover,
+.ui-btn:not(:disabled):hover,
+.search-cta:not(:disabled):hover {
+  background: var(--btn-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+button:focus-visible,
+.ui-btn:focus-visible,
+.search-cta:focus-visible,
+a.link-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+button:disabled,
+.ui-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+button.secondary,
+.ui-btn--secondary {
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-text);
+}
+
+button.secondary:not(:disabled):hover,
+.ui-btn--secondary:not(:disabled):hover {
+  background: var(--btn-secondary-hover);
+}
+
+button.danger,
+.ui-btn--danger {
+  background: var(--btn-danger-bg);
+  color: #fff;
+}
+
+button.danger:not(:disabled):hover,
+.ui-btn--danger:not(:disabled):hover {
+  background: var(--btn-danger-hover);
+}
+
+button.ghost,
+.ui-btn--ghost {
+  background: transparent;
+  color: var(--accent);
+  box-shadow: none;
+  border: 1px solid transparent;
+}
+
+button.ghost:not(:disabled):hover,
+.ui-btn--ghost:not(:disabled):hover {
+  background: var(--surface-inset);
+  transform: none;
+  box-shadow: none;
+}
+
+button.small,
+.ui-btn--sm {
+  padding: 6px 9px;
+  font-size: var(--font-size-sm);
+}
+
+.search-cta.glow,
+.ui-btn--glow {
+  background: linear-gradient(90deg, var(--accent-deep), var(--brand));
+  border: none;
+  color: #fff;
+  font-weight: 700;
+}
+
+.advanced-toggle {
+  margin: var(--space-2) 0 var(--space-3);
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+button.advanced-toggle:not(:disabled):hover,
+.advanced-toggle:hover {
+  transform: none;
+  box-shadow: none;
+  text-decoration: underline;
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+button.password-toggle-btn,
+button.text-link {
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  padding: 4px 8px;
+}
+
+button.password-toggle-btn:not(:disabled):hover,
+button.text-link:not(:disabled):hover {
+  background: var(--brand-soft);
+  color: var(--brand);
+  box-shadow: none;
+}
+
+button.text-link:not(:disabled):hover {
+  transform: none;
+}
+
+/* ── Badges ── */
+.ui-badge,
+.trust-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  line-height: 1.4;
+  border: 1px solid transparent;
+}
+
+.ui-badge--info,
+.trust-pill {
+  background: rgba(34, 211, 238, 0.15);
+  color: var(--accent-glow);
+  border-color: var(--neon-border);
+}
+
+html[data-theme="passenger"] .trust-pill {
+  color: #0e7490;
+  background: rgba(8, 145, 178, 0.12);
+  border-color: rgba(8, 145, 178, 0.25);
+}
+
+.ui-badge--good {
+  background: var(--status-good-bg);
+  color: var(--status-good);
+  border-color: var(--status-good-border);
+}
+
+.ui-badge--warn {
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
+  border-color: var(--status-warn-border);
+}
+
+.ui-badge--bad {
+  background: var(--status-bad-bg);
+  color: var(--status-bad);
+  border-color: var(--status-bad-border);
+}
+
+.ui-badge--neutral {
+  background: var(--surface-inset);
+  color: var(--muted);
+  border-color: var(--line);
+}
+
+/* ── Cards ── */
+.ui-card,
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.ui-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  font-weight: 700;
+}
+
+.ui-card__body {
+  padding: var(--space-4);
+}
+
+.ui-card--glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(8px);
+  border-color: var(--neon-border);
+}
+
+/* ── Filter bar ── */
+.ui-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+}
+
+/* ── Empty states ── */
+.ui-empty,
+.empty-state {
+  padding: var(--space-5) var(--space-4);
+  border: 1px dashed var(--empty-border);
+  border-radius: var(--radius-md);
+  text-align: center;
+  color: var(--muted);
+  background: var(--surface-muted);
+}
+
+.ui-empty__icon {
+  font-size: 28px;
+  line-height: 1;
+  margin-bottom: var(--space-2);
+  opacity: 0.85;
+}
+
+.ui-empty__title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ui-empty__desc {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+  line-height: var(--line-height);
+}
+
+.ui-empty__action {
+  margin-top: var(--space-3);
+}
+
+.ui-empty--compact,
+.empty {
+  padding: var(--space-5) 0;
+  border: 0;
+  background: transparent;
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
+
+.ui-empty--compact .ui-empty__icon,
+.ui-empty--compact .ui-empty__title,
+.ui-empty--compact .ui-empty__action {
+  display: none;
+}
+
+/* ── Skeleton loading ── */
+@keyframes ui-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.ui-skeleton,
+.reco-skeleton {
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    90deg,
+    var(--skeleton-base) 0%,
+    var(--skeleton-shine) 50%,
+    var(--skeleton-base) 100%
+  );
+  background-size: 200% 100%;
+  animation: ui-shimmer 1.2s infinite;
+}
+
+.ui-skeleton--card,
+.reco-skeleton {
+  height: 120px;
+}
+
+.ui-skeleton--line {
+  height: 14px;
+  margin-bottom: var(--space-2);
+}
+
+.ui-skeleton--line:last-child {
+  width: 70%;
+  margin-bottom: 0;
+}
+
+/* ── Modal shell ── */
+.ui-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.55);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+  padding: var(--space-4);
+}
+
+.ui-modal {
+  width: min(520px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+}
+
+.ui-modal__header {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--line);
+  font-weight: 700;
+  font-size: var(--font-size-lg);
+}
+
+.ui-modal__body {
+  padding: var(--space-4);
+}
+
+.ui-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+/* ── Form inputs (shared baseline) ── */
+input,
+select,
+textarea {
+  font: inherit;
+  width: 100%;
+  padding: 10px 11px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--input-text);
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+/* ── Status chips (ops dashboard) ── */
+.ui-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+}
+
+.ui-status--good { background: var(--status-good-bg); color: var(--status-good); }
+.ui-status--warn { background: var(--status-warn-bg); color: var(--status-warn); }
+.ui-status--bad { background: var(--status-bad-bg); color: var(--status-bad); }

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 400" fill="none">
+  <defs>
+    <linearGradient id="bg1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="45%" stop-color="#1e3a8a"/>
+      <stop offset="100%" stop-color="#0891b2"/>
+    </linearGradient>
+    <linearGradient id="track1" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#22d3ee" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1440" height="400" fill="url(#bg1)"/>
+  <circle cx="1200" cy="80" r="180" fill="#0891b2" fill-opacity="0.15"/>
+  <circle cx="200" cy="320" r="140" fill="#1e40af" fill-opacity="0.2"/>
+  <path d="M0 280 Q360 240 720 260 T1440 250 L1440 400 L0 400Z" fill="#0f172a" fill-opacity="0.35"/>
+  <rect x="0" y="268" width="1440" height="4" fill="url(#track1)"/>
+  <rect x="0" y="278" width="1440" height="2" fill="#334155" fill-opacity="0.5"/>
+  <!-- maglev train body -->
+  <g transform="translate(420 195)">
+    <ellipse cx="300" cy="78" rx="280" ry="12" fill="#000" fill-opacity="0.25"/>
+    <path d="M40 70 Q40 30 90 22 L510 22 Q560 22 560 70 L560 78 Q560 92 540 92 L60 92 Q40 92 40 78Z" fill="#e2e8f0"/>
+    <path d="M55 70 Q55 38 95 32 L505 32 Q545 32 545 70 L545 76 Q545 86 528 86 L72 86 Q55 86 55 76Z" fill="#f8fafc"/>
+    <rect x="95" y="42" width="70" height="28" rx="6" fill="#0891b2" fill-opacity="0.35"/>
+    <rect x="185" y="42" width="70" height="28" rx="6" fill="#0891b2" fill-opacity="0.35"/>
+    <rect x="275" y="42" width="70" height="28" rx="6" fill="#0891b2" fill-opacity="0.35"/>
+    <rect x="365" y="42" width="70" height="28" rx="6" fill="#0891b2" fill-opacity="0.35"/>
+    <path d="M560 55 L590 55 L600 78 L560 78Z" fill="#1e3a8a"/>
+    <rect x="60" y="88" width="480" height="6" rx="2" fill="#94a3b8"/>
+    <circle cx="130" cy="98" r="14" fill="#334155"/>
+    <circle cx="130" cy="98" r="8" fill="#64748b"/>
+    <circle cx="470" cy="98" r="14" fill="#334155"/>
+    <circle cx="470" cy="98" r="8" fill="#64748b"/>
+    <!-- levitation glow -->
+    <rect x="80" y="108" width="440" height="3" rx="1.5" fill="#22d3ee" fill-opacity="0.7"/>
+  </g>
+  <!-- speed lines -->
+  <path d="M80 160 H320" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+  <path d="M120 180 H380" stroke="#22d3ee" stroke-width="1.5" stroke-linecap="round" opacity="0.35"/>
+  <path d="M60 200 H280" stroke="#22d3ee" stroke-width="1" stroke-linecap="round" opacity="0.25"/>
+</svg>

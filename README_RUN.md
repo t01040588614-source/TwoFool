@@ -9,11 +9,19 @@
 ```env
 JWT_SECRET_KEY=change-this-to-a-long-random-secret
 
+# AI(GPT) — Key 넣고 서버 재시작하면 GPT 연동 (없으면 규칙 기반)
+OPENAI_API_KEY=sk-your-openai-api-key
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_ENABLED=auto
+
 # 선택: 토스 테스트 결제창 사용 시
 TOSS_PAYMENTS_CLIENT_KEY=test_ck_your_real_value
 TOSS_PAYMENTS_SECRET_KEY=test_sk_your_real_value
 TOSS_PAYMENTS_MOCK_ONLY=0
 ```
+
+> AI 코드(`openai_*.py`)는 프로젝트에 포함되어 있습니다.  
+> API Key는 `.env`에 직접 넣어야 하며 ZIP에는 포함되지 않습니다.
 
 ## 3) 의존성 설치(최초 1회)
 - 터미널에서 아래 명령을 실행합니다.
