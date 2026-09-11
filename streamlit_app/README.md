@@ -35,10 +35,11 @@ streamlit run streamlit_app.py
 
 ## 참고
 
-- 데이터는 이 폴더 안에 `streamlit_demo.db`라는 **별도의** SQLite 파일에 저장되며
-  (원본 `book/app.db`와 완전히 분리되어 있어 서로 영향을 주지 않습니다), Streamlit
-  Cloud는 디스크가 휘발성이라 앱이 재시작되면 예약 내역이 초기화됩니다 — 데모용으로
-  의도된 동작입니다.
+- 데이터는 시스템 임시 디렉터리(`scmaglev_streamlit_demo.db`)의 **별도의** SQLite
+  파일에 저장되며(원본 `book/app.db`와 완전히 분리되어 있어 서로 영향을 주지
+  않습니다), Streamlit Cloud는 디스크가 휘발성이라 앱이 재시작되면 예약 내역이
+  초기화됩니다 — 데모용으로 의도된 동작입니다. (앱 소스 디렉터리에 SQLite 파일을
+  두면 Streamlit Cloud에서 쓰기 권한 오류가 날 수 있어 임시 디렉터리를 씁니다.)
 - 실제 서비스처럼 실시간 관제 대시보드, 회원가입/로그인, 결제까지 필요하면
   저장소 루트의 `render.yaml`로 Render에 배포하는 원본 버전을 사용해주세요
   (`RENDER_배포안내.md` 참고).

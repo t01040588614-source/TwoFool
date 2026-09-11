@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 import secrets
 import sys
+import tempfile
 from pathlib import Path
 
 # --- book/ 폴더를 파이썬 경로에 추가해서 원본 백엔드 코드를 그대로 재사용 ---
@@ -32,7 +33,13 @@ if str(BOOK_DIR) not in sys.path:
 
 # book/app.py를 import 하기 전에 필요한 환경변수를 먼저 정해줘야 합니다.
 # (book/config.py가 import 시점에 JWT_SECRET_KEY 존재 여부를 검사합니다)
-DEMO_DB_PATH = APP_DIR / "streamlit_demo.db"
+#
+# DB 파일은 git 체크아웃 폴더가 아니라 시스템 임시 디렉터리에 둡니다.
+# Streamlit Community Cloud에서는 앱 소스 디렉터리(/mount/src/...)에
+# SQLite 파일을 쓰려고 하면 "unable to open database file" /
+# "attempt to write a readonly database" 오류가 날 수 있어서(쓰기 가능이
+# 보장되는 곳은 임시 디렉터리뿐), 항상 tempdir을 사용합니다.
+DEMO_DB_PATH = Path(tempfile.gettempdir()) / "scmaglev_streamlit_demo.db"
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{DEMO_DB_PATH}")
 os.environ.setdefault("JWT_SECRET_KEY", secrets.token_urlsafe(32))
 os.environ.setdefault("TOSS_PAYMENTS_MOCK_ONLY", "1")
@@ -44,7 +51,16 @@ import streamlit as st  # noqa: E402
 # book/app.py의 `with app.app_context(): ...` 블록이 import 시점에 테이블 생성 +
 # 데이터 시드까지 전부 끝내줍니다. Python은 모듈을 프로세스당 한 번만 import
 # 하므로, Streamlit이 스크립트를 다시 실행해도 이 시드 작업은 한 번만 일어납니다.
-import app as backend  # noqa: E402
+#
+# Streamlit Cloud는 앱 최상위에서 예외가 나면 실제 에러 메시지를 가려서
+# ("redacted") 보여주므로, import 실패 시 원인을 화면에서 바로 볼 수 있도록
+# 직접 잡아서 보여줍니다.
+try:
+    import app as backend  # noqa: E402
+except Exception as exc:  # noqa: BLE001
+    st.error("백엔드(book/app.py) 초기화에 실패했습니다. 아래 오류 내용을 확인해주세요.")
+    st.exception(exc)
+    st.stop()
 from sqlalchemy import or_  # noqa: E402
 
 st.set_page_config(
