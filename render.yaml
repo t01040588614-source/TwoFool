@@ -1,22 +1,19 @@
-# Render Blueprint — https://render.com/docs/blueprint-spec
-# GitHub: t01040588614-source/TwoFool 연결 후 "New > Blueprint" 로 배포
+# Render Blueprint — Mood Code(가구) 와 동일 Docker 방식
 services:
   - type: web
     name: scmaglev
-    runtime: python
-    rootDir: 백엔드 프로젝트 파일
+    runtime: docker
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT --timeout 180 app:app
+    region: singapore
+    dockerfilePath: ./백엔드 프로젝트 파일/Dockerfile
+    dockerContext: ./백엔드 프로젝트 파일
     healthCheckPath: /api/health
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.12.8"
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: SCMAGLEV_MAX_TRACKED_TRAINS
         value: "200"
-      - key: OPENAI_ENABLED
-        value: auto
       - key: TOSS_PAYMENTS_MOCK_ONLY
         value: "1"
+      - key: OPENAI_ENABLED
+        value: auto
