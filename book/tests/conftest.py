@@ -39,7 +39,7 @@ def register_user(client, username, email, password="password123", role="passeng
 
 
 @pytest.fixture()
-def create_user(client):
+def create_user(client):  # noqa: ARG001
     return register_user
 
 

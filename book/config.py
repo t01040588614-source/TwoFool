@@ -8,6 +8,13 @@ BASE_DIR = os.path.abspath(
     os.path.dirname(__file__)
 )
 
+# book/.env 가 없을 때 백엔드 프로젝트 폴더의 .env 를 자동으로 사용
+_backend_env = os.path.normpath(
+    os.path.join(BASE_DIR, "..", "백엔드 프로젝트 파일", ".env")
+)
+if os.path.isfile(_backend_env):
+    load_dotenv(_backend_env, override=False)
+
 
 def _normalize_database_url(raw_url):
     if not raw_url:

@@ -145,6 +145,8 @@ def _rule_based_chat(message, context):
 
 def _rule_based_dashboard_chat(message, context):
     context = context or {}
+    message = (message or "").strip()
+    lower = message.lower()
     dashboard = context.get("dashboard") or {}
     status = dashboard.get("status_counts") or {}
     trust = dashboard.get("passenger_trust") or context.get("control_trust") or {}

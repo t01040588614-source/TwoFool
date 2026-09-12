@@ -3,16 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>SCMAGLEV 관제센터 대시보드</title>
   <link rel="icon" type="image/svg+xml" href="/static/images/site-favicon.svg">
-  <link rel="stylesheet" href="/static/css/tokens.css">
-  <link rel="stylesheet" href="/static/css/components.css">
-  <link rel="stylesheet" href="/static/css/dashboard.css">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=3">
+  <link rel="stylesheet" href="/static/css/components.css?v=3">
+  <link rel="stylesheet" href="/static/css/dashboard.css?v=3">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
   <style>
     .event-summary-grid {
       display: grid;
@@ -113,9 +111,10 @@
       color: #b45309;
     }
     .mode-badge.ai-ready {
-      border-color: #34d399;
-      background: #ecfdf5;
-      color: #047857;
+      border-color: #047857;
+      background: #059669;
+      color: #ffffff;
+      box-shadow: 0 1px 3px rgba(4, 120, 87, 0.35);
     }
     .mode-badge.ai-rule {
       border-color: #94a3b8;
@@ -1463,9 +1462,29 @@
       .side-rail { display: none !important; }
       .side-compact-panel { display: block; }
     }
+    .boot-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: grid;
+      place-items: center;
+      background: rgba(2, 6, 23, 0.92);
+      color: #e2e8f0;
+      padding: 24px;
+      text-align: center;
+    }
+    .boot-overlay[hidden] { display: none; }
+    .boot-overlay strong { display: block; font-size: 22px; margin-bottom: 10px; color: #f8fafc; }
+    .boot-overlay p { margin: 0; line-height: 1.6; color: #93c5fd; }
   </style>
 </head>
 <body class="dashboard-body">
+  <div id="boot-overlay" class="boot-overlay" aria-live="polite">
+    <div>
+      <strong>서버를 준비하는 중입니다</strong>
+      <p id="boot-status">Render 무료 서버가 깨어나는 중입니다. 최대 90초 정도 걸릴 수 있습니다.</p>
+    </div>
+  </div>
   <header class="dashboard-header">
     <div class="wrap bar">
       <h1><span>SCMAGLEV</span> 관제센터</h1>
@@ -1942,6 +1961,7 @@
       },
       stationHeatmap: [],
       stationHeatById: {},
+      detailAutoLoaded: false,
       trainsFetchInFlight: false,
       trainsFetchQueued: false,
       mapRenderInFlight: false,
@@ -2041,7 +2061,7 @@
       try {
         response = await fetch(url, options);
       } catch (_) {
-        throw new Error("서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.");
+        throw new Error("서버에 연결할 수 없습니다. Render 무료 플랜은 깨어나는 데 30~90초 걸릴 수 있습니다.");
       }
 
       let data = {};
@@ -2845,16 +2865,8 @@
       state.mapView.routeLayer = L.featureGroup().addTo(map);
       state.mapView.stationLayer = L.featureGroup().addTo(map);
       state.mapView.heatmapLayer = L.featureGroup().addTo(map);
-      state.mapView.trainLayer = typeof L.markerClusterGroup === "function"
-        ? L.markerClusterGroup({
-            maxClusterRadius: 58,
-            disableClusteringAtZoom: 10,
-            showCoverageOnHover: false,
-            spiderfyOnMaxZoom: true,
-            chunkedLoading: true,
-            chunkInterval: 100,
-          }).addTo(map)
-        : L.featureGroup().addTo(map);
+      // circleMarker + cluster 조합에서 refreshClusters(getAllChildMarkers) 오류 방지
+      state.mapView.trainLayer = L.featureGroup().addTo(map);
       state.mapView.disruptionLayer = L.featureGroup().addTo(map);
 
       attachKoreaMapLayout(map);
@@ -2921,14 +2933,15 @@
 
     function getLiveMapProgress(train, nowMs = Date.now()) {
       if (train.is_waiting_departure) return 0;
-      if (train.operation_status === "arrived") return 1;
+      if (train.operation_status === "arrived" || train.service_phase === "arrived") return 1;
 
       const depMs = parseScheduleUtc(train.schedule_departure_time);
       const arrMs = parseScheduleUtc(train.schedule_arrival_time);
-      const durationMs = getTripDurationMs(train);
 
-      if (train.is_in_service && Number.isFinite(depMs) && Number.isFinite(arrMs) && arrMs > depMs) {
-        return Math.min(1, Math.max(0, (nowMs - depMs) / (arrMs - depMs)));
+      if (Number.isFinite(depMs) && Number.isFinite(arrMs) && arrMs > depMs) {
+        if (nowMs <= depMs) return 0;
+        if (nowMs >= arrMs) return 1;
+        return (nowMs - depMs) / (arrMs - depMs);
       }
 
       const scheduled = Number(train.schedule_progress);
@@ -2975,18 +2988,14 @@
       });
     }
 
-    function moveMarker(marker, lat, lng, animate = true) {
+    function moveMarker(marker, lat, lng) {
       if (!marker) return;
       const next = L.latLng(lat, lng);
       const current = marker.getLatLng?.();
       if (current && Math.abs(current.lat - next.lat) < 1e-8 && Math.abs(current.lng - next.lng) < 1e-8) {
         return;
       }
-      if (animate && typeof marker.setLatLng === "function") {
-        marker.setLatLng(next, { animate: true, duration: 1.05 });
-      } else {
-        marker.setLatLng(next);
-      }
+      marker.setLatLng(next);
     }
 
     function shouldShowDisruptionRadar(train) {
@@ -3057,30 +3066,32 @@
       return Math.max(0, Math.ceil((arrMs - nowMs) / 60000));
     }
 
+    function getMapTrainSource() {
+      return state.allTrains.length ? state.allTrains : state.trains;
+    }
+
     function updateTrainMarkerPositions(nowMs = Date.now()) {
       const map = state.mapView.map;
       if (!map) return;
-      syncMapMarkersWithOperatingTrains(state.trains);
-      for (const train of getMapVisibleTrains(state.trains)) {
+      const mapTrains = getMapVisibleTrains(getMapTrainSource());
+      syncMapMarkersWithOperatingTrains(getMapTrainSource());
+      for (const train of mapTrains) {
         const trainId = String(train.train_id);
         const [lat, lng] = getTrainScheduleLatLng(train, nowMs);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
 
         const marker = state.mapView.trainMarkers.get(trainId);
         if (marker && state.layerVisibility.trains) {
-          moveMarker(marker, lat, lng, true);
+          moveMarker(marker, lat, lng);
         }
         syncDisruptionRadar(train, lat, lng);
       }
 
       for (const [trainId, entry] of state.mapView.disruptionMarkers.entries()) {
-        if (!state.trains.some((train) => String(train.train_id) === trainId)) {
+        if (!mapTrains.some((train) => String(train.train_id) === trainId)) {
           state.mapView.disruptionLayer.removeLayer(entry.group);
           state.mapView.disruptionMarkers.delete(trainId);
         }
-      }
-      if (state.mapView.trainLayer?.refreshClusters) {
-        state.mapView.trainLayer.refreshClusters();
       }
     }
 
@@ -3761,14 +3772,16 @@
         updateTrainMarkerPositions();
         updateLocationInfo(state.trains, state.mapView.trainMarkers.size);
       } else {
-        await renderLocations(state.trains);
+        await renderLocations(getMapTrainSource());
       }
       renderRouteTabs();
       renderTrainTable(state.trains);
       if (state.selectedTrainId && !state.trains.some((train) => Number(train.train_id) === Number(state.selectedTrainId))) {
         state.selectedTrainId = state.trains.length ? state.trains[0].train_id : null;
+        state.detailAutoLoaded = false;
       }
-      if (!state.selectedTrainId && state.trains.length) {
+      if (!state.selectedTrainId && state.trains.length && !state.detailAutoLoaded) {
+        state.detailAutoLoaded = true;
         loadTrainDetail(state.trains[0].train_id);
       }
       renderRouteFilterState();
@@ -4220,13 +4233,77 @@
       }).join("");
     }
 
+    function isRetryableError(error) {
+      if (!error) return false;
+      if ([502, 503, 504].includes(Number(error.status))) return true;
+      const message = String(error.message || "");
+      return message.includes("연결") || message.includes("초기화") || message.includes("502") || message.includes("503");
+    }
+
+    async function waitForBackend(maxMs = 60000) {
+      const overlay = document.getElementById("boot-overlay");
+      const statusNode = document.getElementById("boot-status");
+      const started = Date.now();
+      let attempt = 0;
+      while (Date.now() - started < maxMs) {
+        attempt += 1;
+        try {
+          const ping = await fetch("/ping", { cache: "no-store" });
+          if (ping.ok) {
+            if (statusNode) statusNode.textContent = "서버 연결 완료 · 대시보드를 불러오는 중...";
+            if (overlay) overlay.hidden = true;
+            return true;
+          }
+          const response = await fetch("/api/health", { cache: "no-store" });
+          if (response.ok) {
+            const data = await response.json();
+            if (statusNode) {
+              statusNode.textContent = data.db_ready
+                ? "서버 연결 완료 · 대시보드를 불러오는 중..."
+                : "서버 초기화 중 · 데이터 준비 후 화면이 표시됩니다...";
+            }
+            if (overlay) overlay.hidden = true;
+            return true;
+          }
+        } catch (_) {}
+        if (statusNode) {
+          statusNode.textContent = `서버 연결 중... (${attempt}번째 시도 · 502면 30~90초 후 자동 재시도)`;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 2000 + attempt * 500));
+      }
+      if (statusNode) statusNode.textContent = "연결이 지연되고 있습니다. Ctrl+F5로 새로고침해 주세요.";
+      return false;
+    }
+
+    async function fetchWithRetry(path, attempts = 8, delayMs = 2000) {
+      let lastError = null;
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        try {
+          return await api(path);
+        } catch (error) {
+          lastError = error;
+          if (!isRetryableError(error) || attempt >= attempts - 1) break;
+          await new Promise((resolve) => window.setTimeout(resolve, delayMs * (attempt + 1)));
+        }
+      }
+      throw lastError;
+    }
+
+    async function initDashboardStep(label, fn) {
+      try {
+        await fn();
+      } catch (error) {
+        console.error(`[SCMAGLEV dashboard] ${label} failed`, error);
+      }
+    }
+
     async function loadStations() {
-      const data = await api("/api/scmaglev/stations");
+      const data = await fetchWithRetry("/api/scmaglev/stations");
       state.stations = data.stations || [];
     }
 
     async function loadRoutes() {
-      const data = await api("/api/scmaglev/routes");
+      const data = await fetchWithRetry("/api/scmaglev/routes");
       state.routes = data.routes || [];
     }
 
@@ -4249,7 +4326,13 @@
     }
 
     async function loadDashboardSummary() {
-      const data = await api("/api/scmaglev/dashboard/public-summary");
+      let data;
+      try {
+        data = await fetchWithRetry("/api/scmaglev/dashboard/public-summary", 4, 1500);
+      } catch (error) {
+        console.error("[SCMAGLEV dashboard] summary failed", error);
+        return;
+      }
       state.latestSummary = data;
       $("status-in-service").textContent = data.status_counts.in_service || 0;
       $("status-waiting").textContent = data.status_counts.waiting || 0;
@@ -4618,7 +4701,7 @@
         if (!state.mapView.mapReady && !state.mapRenderInFlight) {
           updateLocationInfo([], null, "실시간 데이터를 불러오는 중...");
         }
-        const data = await api("/api/scmaglev/dashboard/trains");
+        const data = await fetchWithRetry("/api/scmaglev/dashboard/trains", 3, 1500);
         state.allTrains = data.trains || [];
         renderRouteHealthPanel();
         await refreshTrainView({ liveOnly });
@@ -4727,7 +4810,7 @@
     function connectSocket() {
       if (typeof io !== "function") return;
       try {
-        const socket = io("/scmaglev");
+        const socket = io({ transports: ["websocket", "polling"] });
         socket.on("train_locations", (payload) => {
           state.allTrains = payload.trains || [];
           refreshTrainView({ liveOnly: true });
@@ -4999,23 +5082,24 @@
         : '<i class="icon">▶️</i>자동갱신 재개';
     });
     (async () => {
+      await waitForBackend();
       bindCompactDockActions();
       bindDashboardAiChat();
-      await loadAiStatus();
+      await initDashboardStep("AI status", () => loadAiStatus());
       updateLiveDateTime();
       state.pollTimers.push(setInterval(updateLiveDateTime, 1000));
       renderActionTimeline();
-      await loadStations();
-      await loadRoutes();
-      await bootstrapControllerToken();
-      await loadOperatorProfile();
-      await loadEventFilterOptions();
-      await loadDashboardSummary();
-      await loadStationHeatmap();
-      try { await loadEventLogs(); } catch (_) { /* 이벤트 로그 실패해도 지도는 로드 */ }
-      await loadLocationSnapshot();
-      try { await runPrediction(); } catch (_) { /* 예측 실패해도 지도 유지 */ }
-      try { await loadModelComparison(); } catch (_) {}
+      await initDashboardStep("stations", () => loadStations());
+      await initDashboardStep("routes", () => loadRoutes());
+      await initDashboardStep("controller token", () => bootstrapControllerToken());
+      await initDashboardStep("operator profile", () => loadOperatorProfile());
+      await initDashboardStep("event filters", () => loadEventFilterOptions());
+      await initDashboardStep("dashboard summary", () => loadDashboardSummary());
+      await initDashboardStep("station heatmap", () => loadStationHeatmap());
+      await initDashboardStep("event logs", () => loadEventLogs());
+      await initDashboardStep("location snapshot", () => loadLocationSnapshot());
+      await initDashboardStep("prediction", () => runPrediction());
+      await initDashboardStep("model comparison", () => loadModelComparison());
       connectSocket();
       startTrainMotionLoop();
 

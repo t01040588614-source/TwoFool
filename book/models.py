@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from extensions import db
 
@@ -37,7 +37,7 @@ class User(db.Model):
 
     created_at = db.Column(
         db.DateTime,
-        default=lambda: datetime.now(timezone.utc)
+        default=lambda: datetime.now(UTC)
     )
 
     posts = db.relationship(
@@ -69,7 +69,7 @@ class VerificationCode(db.Model):
     verified_token = db.Column(db.String(255), nullable=True)
     created_at = db.Column(
         db.DateTime,
-        default=lambda: datetime.now(timezone.utc)
+        default=lambda: datetime.now(UTC)
     )
 
 
@@ -94,13 +94,13 @@ class Post(db.Model):
 
     created_at = db.Column(
         db.DateTime,
-        default=lambda: datetime.now(timezone.utc)
+        default=lambda: datetime.now(UTC)
     )
 
     updated_at = db.Column(
         db.DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc)
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC)
     )
 
     user_id = db.Column(
@@ -133,7 +133,7 @@ class Comment(db.Model):
 
     created_at = db.Column(
         db.DateTime,
-        default=lambda: datetime.now(timezone.utc)
+        default=lambda: datetime.now(UTC)
     )
 
     user_id = db.Column(
@@ -159,7 +159,7 @@ class TrainType(db.Model):
     max_speed_kmh = db.Column(db.Integer, nullable=False)
     created_at = db.Column(
         db.DateTime,
-        default=lambda: datetime.now(timezone.utc)
+        default=lambda: datetime.now(UTC)
     )
 
 
@@ -174,7 +174,7 @@ class Station(db.Model):
     longitude = db.Column(db.Float, nullable=False)
     created_at = db.Column(
         db.DateTime,
-        default=lambda: datetime.now(timezone.utc)
+        default=lambda: datetime.now(UTC)
     )
 
 
@@ -187,7 +187,7 @@ class Route(db.Model):
     name = db.Column(db.String(100), nullable=False)
     created_at = db.Column(
         db.DateTime,
-        default=lambda: datetime.now(timezone.utc)
+        default=lambda: datetime.now(UTC)
     )
 
 
@@ -215,7 +215,7 @@ class Train(db.Model):
     status = db.Column(db.String(20), nullable=False, default="normal")
     created_at = db.Column(
         db.DateTime,
-        default=lambda: datetime.now(timezone.utc)
+        default=lambda: datetime.now(UTC)
     )
 
 
@@ -231,7 +231,7 @@ class Schedule(db.Model):
     arrival_time = db.Column(db.DateTime, nullable=False)
     created_at = db.Column(
         db.DateTime,
-        default=lambda: datetime.now(timezone.utc)
+        default=lambda: datetime.now(UTC)
     )
 
 
@@ -247,7 +247,7 @@ class Seat(db.Model):
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(
         db.DateTime,
-        default=lambda: datetime.now(timezone.utc)
+        default=lambda: datetime.now(UTC)
     )
 
 
@@ -268,7 +268,7 @@ class Reservation(db.Model):
     fail_reason = db.Column(db.String(255), nullable=True)
     booked_at = db.Column(
         db.DateTime,
-        default=lambda: datetime.now(timezone.utc)
+        default=lambda: datetime.now(UTC)
     )
     cancelled_at = db.Column(db.DateTime, nullable=True)
 
@@ -292,8 +292,8 @@ class TrainLocation(db.Model):
     congestion = db.Column(db.String(20), nullable=False, default="medium")
     updated_at = db.Column(
         db.DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc)
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC)
     )
 
 
@@ -315,6 +315,6 @@ class OperationEventLog(db.Model):
     acknowledged_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(
         db.DateTime,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         index=True,
     )

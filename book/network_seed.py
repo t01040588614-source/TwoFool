@@ -5,8 +5,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 import math
-from typing import Iterable
 
 # (code, name, latitude, longitude)
 STATION_SPECS: list[tuple[str, str, float, float]] = [

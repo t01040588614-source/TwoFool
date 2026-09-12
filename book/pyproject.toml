@@ -13,6 +13,9 @@ known-first-party = [
     "ml_predictor",
     "models",
     "network_seed",
+    "openai_assistant",
+    "openai_config",
+    "openai_dashboard",
     "openai_recommender",
 ]
 combine-as-imports = true

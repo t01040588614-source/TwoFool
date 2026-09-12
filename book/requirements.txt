@@ -3,6 +3,6 @@ Flask-JWT-Extended
 Flask-SQLAlchemy
 Flask-SocketIO
 python-dotenv
-gunicorn
+gunicorn>=22,<26
 eventlet
 pytest

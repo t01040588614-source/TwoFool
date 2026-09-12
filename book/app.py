@@ -1,6 +1,6 @@
 import base64
 from collections import defaultdict, deque
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from functools import wraps
 import json
@@ -108,9 +108,20 @@ def jwt_needs_fresh_token_callback(_jwt_header, _jwt_payload):
     }), 401
 
 
-socketio = SocketIO(app, cors_allowed_origins="*")
+def _socketio_init_kwargs():
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return {}
+    if os.environ.get("PORT"):
+        return {"async_mode": "eventlet"}
+    return {}
+
+
+socketio = SocketIO(app, cors_allowed_origins="*", **_socketio_init_kwargs())
 
 SIMULATION_INTERVAL_SECONDS = 3
+_startup_state = {"ready": False, "error": None}
+_startup_lock = threading.Lock()
+_startup_init_started = False
 _simulator_started = False
 _simulator_lock = threading.Lock()
 MAX_HISTORY_POINTS = 30
@@ -325,6 +336,15 @@ def send_recovery_email(email, code, purpose):
 # Frontend
 # ==========================================
 
+@app.after_request
+def prevent_html_cache(response):
+    content_type = response.headers.get("Content-Type", "")
+    if "text/html" in content_type:
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
 @app.route("/", methods=["GET"])
 def index():
 
@@ -397,14 +417,55 @@ def dashboard_action_page(action_key):
 # Health Check
 # ==========================================
 
+@app.route("/ping", methods=["GET"])
+def ping():
+    return "pong", 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
 @app.route("/api/health", methods=["GET"])
 def health():
+    if _startup_state["error"]:
+        status = "degraded"
+    elif _startup_state["ready"]:
+        status = "ok"
+    else:
+        status = "starting"
 
-    return jsonify({
-        "status": "ok",
+    payload = {
+        "status": status,
         "message": "Backend server is running",
-        "ai": get_openai_status(),
-    })
+        "db_ready": _startup_state["ready"] and not _startup_state["error"],
+        **({"init_error": _startup_state["error"]} if _startup_state["error"] else {}),
+    }
+    if status != "starting":
+        payload["ai"] = get_openai_status()
+    return jsonify(payload)
+
+
+_STARTUP_PUBLIC_GET_PATHS = frozenset({
+    "/api/health",
+    "/api/scmaglev/ai/status",
+    "/api/scmaglev/payment/mode",
+    "/api/scmaglev/stations",
+    "/api/scmaglev/routes",
+    "/api/scmaglev/dashboard/public-summary",
+    "/api/scmaglev/dashboard/trains",
+    "/api/scmaglev/dashboard/station-heatmap",
+})
+
+
+@app.before_request
+def guard_until_db_ready():
+    if _startup_state["ready"] or not request.path.startswith("/api/"):
+        return None
+    if request.path in _STARTUP_PUBLIC_GET_PATHS and request.method == "GET":
+        return None
+    if request.path.startswith("/api/scmaglev/trains/search") and request.method == "GET":
+        return None
+    return jsonify({
+        "message": "서버 초기화 중입니다. 잠시 후 다시 시도해 주세요.",
+        "status": "starting",
+    }), 503
 
 
 @app.route("/api/scmaglev/ai/status", methods=["GET"])
@@ -531,7 +592,7 @@ def handle_unexpected_exception(error):
 # ==========================================
 
 def now_utc_naive():
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def isoformat_utc(dt):
@@ -640,7 +701,7 @@ def parse_departure_after_filter(raw_value):
     except ValueError:
         return None
     if parsed.tzinfo is not None:
-        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        parsed = parsed.astimezone(UTC).replace(tzinfo=None)
     return parsed
 
 
@@ -822,7 +883,7 @@ def build_toss_order_id(reservation):
     return f"SCM-{reservation.id}-{token_prefix}"
 
 
-def build_toss_order_name(reservation, schedule, seat):
+def build_toss_order_name(_reservation, schedule, seat):
     train = db.session.get(
         Train, schedule.train_id) if schedule and schedule.train_id else None
     departure_station = db.session.get(
@@ -1371,7 +1432,7 @@ def assign_train_fault(location, train, cause, current_time):
         train_fault_last_logged[train.id] = cause["code"]
 
 
-def clear_train_fault(location, train, current_time):
+def clear_train_fault(location, train, _current_time):
     previous_label = location.fault_cause_label or location.fault_cause_code or "고장"
     location.fault_cause_code = None
     location.fault_cause_label = None
@@ -1604,8 +1665,7 @@ def _update_train_location(location):
 
 def _broadcast_train_locations(payload):
     if socketio is not None:
-        socketio.emit("train_locations", {
-                      "trains": payload}, namespace="/scmaglev")
+        socketio.emit("train_locations", {"trains": payload})
 
 
 def run_location_simulator():
@@ -2055,7 +2115,7 @@ def ensure_direct_train_schedule(departure_name, arrival_name, departure_after_t
     return schedule
 
 
-def _schedule_row_is_active(schedule, train_type, departure_after_time, now):
+def _schedule_row_is_active(schedule, _train_type, departure_after_time, now):
     if departure_after_time and schedule.departure_time < departure_after_time:
         return False
     return schedule.arrival_time >= now - timedelta(hours=1)
@@ -2682,9 +2742,37 @@ def scmaglev_dashboard_summary():
     return jsonify(build_dashboard_summary())
 
 
+def _empty_dashboard_summary():
+    return {
+        "status_counts": {
+            "normal": 0,
+            "delayed": 0,
+            "stopped": 0,
+            "disrupted": 0,
+            "arrived": 0,
+            "waiting": 0,
+            "in_service": 0,
+        },
+        "fleet_counts": {"in_service": 0, "waiting": 0, "arrived": 0},
+        "tracked_train_count": 0,
+        "delayed_trains": [],
+        "fault_trains": [],
+        "fault_summary": [],
+        "starting": True,
+    }
+
+
 @app.route("/api/scmaglev/dashboard/public-summary", methods=["GET"])
 def scmaglev_dashboard_public_summary():
-    return jsonify(build_dashboard_summary())
+    if not _startup_state["ready"]:
+        return jsonify(_empty_dashboard_summary())
+    try:
+        return jsonify(build_dashboard_summary())
+    except Exception as exc:
+        app.logger.exception("dashboard public-summary failed: %s", exc)
+        payload = _empty_dashboard_summary()
+        payload["error"] = "summary_unavailable"
+        return jsonify(payload), 503
 
 
 @app.route("/api/scmaglev/dashboard/ai/draft", methods=["POST"])
@@ -3380,18 +3468,22 @@ def scmaglev_dashboard_action():
 @app.route("/api/scmaglev/dashboard/trains", methods=["GET"])
 def scmaglev_dashboard_trains():
     status_filter = request.args.get("status", "").strip().lower()
-    locations = TrainLocation.query.order_by(
-        TrainLocation.train_id.asc()).all()
-    payload = []
-    for location in locations:
-        item = _update_train_location(location)
-        if not item:
-            continue
-        if status_filter and item["operation_status"] != status_filter:
-            continue
-        payload.append(item)
-    db.session.commit()
-    return jsonify({"trains": payload, "status_filter": status_filter or "all"})
+    try:
+        locations = TrainLocation.query.order_by(
+            TrainLocation.train_id.asc()).all()
+        payload = []
+        for location in locations:
+            item = _update_train_location(location)
+            if not item:
+                continue
+            if status_filter and item["operation_status"] != status_filter:
+                continue
+            payload.append(item)
+        db.session.commit()
+        return jsonify({"trains": payload, "status_filter": status_filter or "all"})
+    except Exception as exc:
+        app.logger.exception("dashboard trains failed: %s", exc)
+        return jsonify({"trains": [], "status_filter": status_filter or "all", "starting": True}), 503
 
 
 @app.route("/api/scmaglev/dashboard/train/<int:train_id>", methods=["GET"])
@@ -4041,7 +4133,7 @@ def request_recovery_code():
         email=email,
         purpose=purpose,
         code_hash=generate_password_hash(code),
-        expires_at=datetime.now(timezone.utc).replace(
+        expires_at=datetime.now(UTC).replace(
             tzinfo=None) + timedelta(minutes=10)
     )
 
@@ -4084,7 +4176,7 @@ def verify_recovery_code():
     if (
         purpose not in {"username", "password"}
         or not recovery
-        or recovery.expires_at < datetime.now(timezone.utc).replace(tzinfo=None)
+        or recovery.expires_at < datetime.now(UTC).replace(tzinfo=None)
         or recovery.attempts >= 5
     ):
         return jsonify({
@@ -4120,7 +4212,7 @@ def valid_recovery_request(email, purpose, recovery_token):
 
     return (
         recovery
-        and recovery.expires_at >= datetime.now(timezone.utc).replace(tzinfo=None)
+        and recovery.expires_at >= datetime.now(UTC).replace(tzinfo=None)
         and recovery.verified_token
         and secrets.compare_digest(recovery.verified_token, recovery_token)
     )
@@ -4783,26 +4875,66 @@ def add_email_column_for_existing_database():
         db.session.commit()
 
 
-with app.app_context():
+def _run_heavy_startup_tasks():
+    try:
+        with app.app_context():
+            bootstrap_direct_fleet_live_ops()
+            ensure_demo_fault_trains()
+            seed_default_operator_account()
+            print("[SCMAGLEV] DB 후처리 완료.", flush=True)
+    except Exception as exc:
+        app.logger.exception("SCMAGLEV DB 후처리 실패")
+        _startup_state["error"] = str(exc)
 
-    print("[SCMAGLEV] DB 테이블 생성/마이그레이션 중...", flush=True)
-    db.create_all()
-    configure_sqlite()
-    add_email_column_for_existing_database()
-    ensure_role_column_for_existing_database()
-    ensure_train_location_fault_columns()
-    ensure_reservation_columns_for_existing_database()
-    print("[SCMAGLEV] 역·노선·편성 시드 중...", flush=True)
-    seed_scmaglev_data()
-    seed_direct_national_trains()
-    prune_dashboard_tracking()
-    ensure_direct_train_locations()
-    bootstrap_direct_fleet_live_ops()
-    ensure_demo_fault_trains()
-    seed_default_operator_account()
-    print("[SCMAGLEV] DB 준비 완료.", flush=True)
 
-start_location_simulator()
+def initialize_scmaglev_data():
+    global _startup_init_started
+
+    with _startup_lock:
+        if _startup_init_started:
+            return
+        _startup_init_started = True
+
+    try:
+        with app.app_context():
+            print("[SCMAGLEV] DB 테이블 생성/마이그레이션 중...", flush=True)
+            db.create_all()
+            configure_sqlite()
+            add_email_column_for_existing_database()
+            ensure_role_column_for_existing_database()
+            ensure_train_location_fault_columns()
+            ensure_reservation_columns_for_existing_database()
+            print("[SCMAGLEV] 역·노선·편성 시드 중...", flush=True)
+            seed_scmaglev_data()
+            seed_direct_national_trains()
+            prune_dashboard_tracking()
+            ensure_direct_train_locations()
+            print("[SCMAGLEV] 기본 DB 준비 완료 · API 사용 가능", flush=True)
+        start_location_simulator()
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            _run_heavy_startup_tasks()
+        else:
+            threading.Thread(target=_run_heavy_startup_tasks, daemon=True).start()
+    except Exception as exc:
+        app.logger.exception("SCMAGLEV 데이터 초기화 실패")
+        _startup_state["error"] = str(exc)
+        print(f"[SCMAGLEV] DB 초기화 오류: {exc}", flush=True)
+    finally:
+        _startup_state["ready"] = True
+
+
+def _should_defer_startup():
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return False
+    if os.environ.get("SCMAGLEV_DEFER_INIT") == "0":
+        return False
+    return bool(os.environ.get("PORT"))
+
+
+if _should_defer_startup():
+    threading.Thread(target=initialize_scmaglev_data, daemon=True).start()
+else:
+    initialize_scmaglev_data()
 
 
 # ==========================================

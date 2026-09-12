@@ -3,13 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>SCMAGLEV 승차권예매</title>
   <link rel="icon" type="image/svg+xml" href="/static/images/site-favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/tokens.css">
-  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=3">
+  <link rel="stylesheet" href="/static/css/components.css?v=3">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="https://js.tosspayments.com/v1/payment"></script>
@@ -294,9 +295,10 @@
       color: #e2e8f0;
     }
     .ai-status-badge.ai-ready {
-      border-color: #34d399;
-      background: rgba(16, 185, 129, 0.18);
-      color: #bbf7d0;
+      border-color: #047857;
+      background: #059669;
+      color: #ffffff;
+      box-shadow: 0 1px 3px rgba(4, 120, 87, 0.25);
     }
     .ai-status-badge.ai-rule {
       border-color: rgba(148, 163, 184, 0.5);
@@ -2181,9 +2183,10 @@
       white-space: nowrap;
     }
     .ai-chat-badge.ready {
-      background: rgba(16, 185, 129, 0.22);
-      border-color: #34d399;
-      color: #ecfdf5;
+      background: #059669;
+      border-color: #047857;
+      color: #ffffff;
+      box-shadow: 0 1px 3px rgba(4, 120, 87, 0.35);
     }
     .ai-chat-clear {
       border: 1px solid rgba(255, 255, 255, 0.22);
@@ -3162,9 +3165,29 @@
       background: #1e3a8a !important;
       color: #fff;
     }
+    .boot-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: grid;
+      place-items: center;
+      background: rgba(15, 23, 42, 0.92);
+      color: #e2e8f0;
+      padding: 24px;
+      text-align: center;
+    }
+    .boot-overlay[hidden] { display: none; }
+    .boot-overlay strong { display: block; font-size: 22px; margin-bottom: 10px; color: #fff; }
+    .boot-overlay p { margin: 0; line-height: 1.6; color: #93c5fd; }
   </style>
 </head>
 <body>
+  <div id="boot-overlay" class="boot-overlay" aria-live="polite">
+    <div>
+      <strong>서버를 준비하는 중입니다</strong>
+      <p id="boot-status">Render 무료 서버가 깨어나는 중입니다. 최대 90초 정도 걸릴 수 있습니다.</p>
+    </div>
+  </div>
   <header class="site-header">
     <div class="utility-bar">
       <div class="container utility-inner">
@@ -5074,6 +5097,57 @@
       }
     }
 
+    function isRetryableError(error) {
+      if (!error) return false;
+      if ([502, 503, 504].includes(Number(error.status))) return true;
+      const message = String(error.message || "");
+      return message.includes("연결") || message.includes("초기화") || message.includes("502") || message.includes("503");
+    }
+
+    async function waitForBackend(maxMs = 60000) {
+      const overlay = document.getElementById("boot-overlay");
+      const statusNode = document.getElementById("boot-status");
+      const started = Date.now();
+      let attempt = 0;
+      while (Date.now() - started < maxMs) {
+        attempt += 1;
+        try {
+          const ping = await fetch("/ping", { cache: "no-store" });
+          if (ping.ok) {
+            if (statusNode) statusNode.textContent = "서버 연결 완료 · 페이지를 불러오는 중...";
+            if (overlay) overlay.hidden = true;
+            return true;
+          }
+          const response = await fetch("/api/health", { cache: "no-store" });
+          if (response.ok) {
+            if (statusNode) statusNode.textContent = "서버 연결 완료 · 페이지를 불러오는 중...";
+            if (overlay) overlay.hidden = true;
+            return true;
+          }
+        } catch (_) {}
+        if (statusNode) {
+          statusNode.textContent = `서버 연결 중... (${attempt}번째 시도 · 502면 30~90초 후 자동 재시도)`;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 2000 + attempt * 500));
+      }
+      if (statusNode) statusNode.textContent = "연결이 지연되고 있습니다. Ctrl+F5로 새로고침해 주세요.";
+      return false;
+    }
+
+    async function fetchWithRetry(path, attempts = 8, delayMs = 2000, options = {}) {
+      let lastError = null;
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        try {
+          return await api(path, options);
+        } catch (error) {
+          lastError = error;
+          if (!isRetryableError(error) || attempt >= attempts - 1) break;
+          await new Promise((resolve) => window.setTimeout(resolve, delayMs * (attempt + 1)));
+        }
+      }
+      throw lastError;
+    }
+
     async function api(url, options = {}) {
       options.headers = {
         ...(options.headers || {}),
@@ -5082,10 +5156,34 @@
       if (state.token) {
         options.headers.Authorization = `Bearer ${state.token}`;
       }
-      const response = await fetch(url, options);
-      const data = await response.json();
+
+      let response;
+      try {
+        response = await fetch(url, options);
+      } catch (_) {
+        throw new Error("서버에 연결할 수 없습니다. Render 무료 플랜은 깨어나는 데 30~90초 걸릴 수 있습니다.");
+      }
+
+      let data = {};
+      const rawText = await response.text();
+      if (rawText) {
+        try {
+          data = JSON.parse(rawText);
+        } catch (_) {
+          if (!response.ok) {
+            const error = new Error(`요청 실패 (${response.status})`);
+            error.status = response.status;
+            throw error;
+          }
+          return {};
+        }
+      }
+
       if (!response.ok) {
-        throw new Error(data.message || "요청 처리에 실패했습니다.");
+        const message = data.message || data.msg || `요청 실패 (${response.status})`;
+        const error = new Error(message);
+        error.status = response.status;
+        throw error;
       }
       return data;
     }
@@ -7041,6 +7139,7 @@
     };
 
     (async () => {
+      await waitForBackend();
       setupTravelDateLimits();
       bindTopNavTabs();
       bindRouteGuide();
