@@ -1,0 +1,23 @@
+# 환경 변수 / 비밀키
+.env
+
+# 데이터베이스 (로컬 생성 파일)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Python 캐시
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 가상환경
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
