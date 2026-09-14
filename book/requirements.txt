@@ -6,3 +6,7 @@ python-dotenv
 gunicorn>=22,<26
 eventlet
 pytest
+numpy
+pandas
+scikit-learn
+joblib

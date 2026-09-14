@@ -5,6 +5,8 @@ import pytest
 # app.py를 불러오기 전에 테스트 전용 메모리 DB를 지정합니다.
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["JWT_SECRET_KEY"] = "test-secret-key-for-pytest-must-be-32-bytes"
+os.environ["SCMAGLEV_SKIP_INIT"] = "1"
+os.environ["CONGESTION_AUTO_RETRAIN"] = "0"
 
 from app import app, seed_scmaglev_data
 from extensions import db

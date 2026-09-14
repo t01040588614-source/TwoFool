@@ -659,6 +659,11 @@ def test_fault_causes_and_summary(client):
     assert "fault_summary" in summary_payload
     assert "fault_trains" in summary_payload
     assert isinstance(summary_payload["fault_summary"], list)
+    assert "event_ack_stats" in summary_payload
+    ack_stats = summary_payload["event_ack_stats"]
+    assert "critical_unacked" in ack_stats
+    assert "oldest_unacked_minutes" in ack_stats
+    assert isinstance(ack_stats["critical_unacked"], int)
 
 
 def test_clear_train_fault_requires_controller(client, auth_headers):

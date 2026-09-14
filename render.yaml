@@ -17,3 +17,15 @@ services:
         value: "1"
       - key: OPENAI_ENABLED
         value: auto
+      - key: CONGESTION_LAZY_LOAD
+        value: "1"
+      - key: CONGESTION_WARMUP
+        value: "0"
+      - key: CONGESTION_AUTO_RETRAIN
+        value: "1"
+      - key: CONGESTION_RETRAIN_HOURS
+        value: "24"
+      - key: CONGESTION_MIN_NEW_SAMPLES
+        value: "300"
+      - key: CONGESTION_OBSERVATION_INTERVAL_SEC
+        value: "30"

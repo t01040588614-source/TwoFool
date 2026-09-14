@@ -5,10 +5,16 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     SCMAGLEV_MAX_TRACKED_TRAINS=200 \
-    TOSS_PAYMENTS_MOCK_ONLY=1
+    TOSS_PAYMENTS_MOCK_ONLY=1 \
+    CONGESTION_LAZY_LOAD=1 \
+    CONGESTION_WARMUP=0 \
+    CONGESTION_AUTO_RETRAIN=1 \
+    CONGESTION_RETRAIN_HOURS=24 \
+    CONGESTION_MIN_NEW_SAMPLES=300
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+ && pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 

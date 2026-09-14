@@ -805,6 +805,68 @@
       background: linear-gradient(180deg, #38bdf8, #1d4ed8);
       border-radius: 4px 4px 0 0;
     }
+    .forecast-chart {
+      margin-top: 10px;
+      padding: 8px;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      background: #0f172a;
+      min-height: 120px;
+    }
+    .forecast-chart svg {
+      width: 100%;
+      height: 120px;
+      display: block;
+    }
+    .ai-info-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .ai-info-card {
+      padding: 10px;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      background: #0b1220;
+      font-size: 12px;
+      color: #cbd5e1;
+      line-height: 1.45;
+    }
+    .ai-info-card strong {
+      color: #e2e8f0;
+      display: block;
+      margin-bottom: 4px;
+    }
+    .forecast-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .forecast-box {
+      padding: 8px;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      background: #0f172a;
+      font-size: 12px;
+      color: #cbd5e1;
+      text-align: center;
+    }
+    .forecast-box strong {
+      display: block;
+      font-size: 16px;
+      color: #f8fafc;
+      margin-top: 4px;
+    }
+    .status-pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      background: #1e293b;
+      color: #93c5fd;
+    }
     .control-bar {
       display: flex;
       align-items: center;
@@ -1758,16 +1820,48 @@
           <div class="kpi-box">노선<br><strong id="detail-route">-</strong></div>
           <div class="kpi-box">속도<br><strong id="detail-speed">-</strong></div>
           <div class="kpi-box">ETA<br><strong id="detail-eta">-</strong></div>
+          <div class="kpi-box">운행 상태<br><strong id="detail-status">-</strong></div>
+          <div class="kpi-box">현재 혼잡도<br><strong id="detail-congestion">-</strong></div>
         </div>
         <div>
           <div class="meta">최근 속도 추이</div>
           <div id="speed-spark" class="spark"></div>
         </div>
         <div class="model-compare">
-          <div class="model-row"><strong>ML 모델</strong><span id="model-ml">-</span></div>
-          <div class="model-row"><strong>DL 모델</strong><span id="model-dl">-</span></div>
+          <div class="meta">미래 혼잡도 예측 · 기준 시점 <span id="forecast-reference-time">-</span> · 데이터 <span id="forecast-data-status" class="status-pill">-</span></div>
+          <div class="forecast-grid">
+            <div class="forecast-box">5분 뒤<br><strong id="forecast-5m">-</strong><span id="forecast-5m-label"></span></div>
+            <div class="forecast-box">10분 뒤 (기본)<br><strong id="forecast-10m">-</strong><span id="forecast-10m-label"></span></div>
+            <div class="forecast-box">15분 뒤<br><strong id="forecast-15m">-</strong><span id="forecast-15m-label"></span></div>
+          </div>
+          <div class="meta" style="margin-top:8px;">모델별 10분 뒤 예측</div>
+          <div class="model-row"><strong>ML · Random Forest</strong><span id="model-ml">-</span></div>
+          <div class="model-row"><strong>DL · LSTM (PyTorch)</strong><span id="model-dl">-</span></div>
           <div class="model-row"><strong>Ensemble</strong><span id="model-ensemble">-</span></div>
+          <div class="model-row"><strong>Ensemble 가중치</strong><span id="model-ensemble-weights">-</span></div>
+          <div class="model-row"><strong>예측 상태</strong><span id="forecast-status">-</span></div>
           <div class="meta" id="model-guidance">모델 비교 대기 중</div>
+          <div class="meta" id="forecast-live-badge">예측 갱신: 대기 중 · 열차 선택 시 5초마다 자동 반영</div>
+        </div>
+        <div>
+          <div class="meta">미래 혼잡도 예측 그래프</div>
+          <div id="congestion-forecast-chart" class="forecast-chart">
+            <svg id="congestion-forecast-svg" viewBox="0 0 360 120" preserveAspectRatio="none"></svg>
+          </div>
+        </div>
+        <div class="ai-info-grid">
+          <div class="ai-info-card" id="ai-info-ml">
+            <strong>머신러닝 (ML)</strong>
+            모델/라이브러리 정보를 불러오는 중...
+          </div>
+          <div class="ai-info-card" id="ai-info-dl">
+            <strong>딥러닝 (DL)</strong>
+            모델/라이브러리 정보를 불러오는 중...
+          </div>
+          <div class="ai-info-card" id="ai-info-ensemble">
+            <strong>앙상블 (Ensemble)</strong>
+            결합 방식 정보를 불러오는 중...
+          </div>
         </div>
         <section class="panel-section">
         <h3 class="panel-subtitle">지연/이상 열차</h3>
@@ -1965,6 +2059,12 @@
       trainsFetchInFlight: false,
       trainsFetchQueued: false,
       mapRenderInFlight: false,
+      selectedTrainSpeedHistory: [],
+      lastForecastRefreshAt: 0,
+      forecastRefreshInFlight: false,
+      modelInfoRefreshAt: 0,
+      latestForecast: null,
+      modelInfo: null,
     };
     const $ = (id) => document.getElementById(id);
     const bindClick = (id, handler) => {
@@ -2430,7 +2530,8 @@
       const normalOperating = Number(status.normal || 0);
       const normalRate = inService > 0 ? `${Math.round((normalOperating / inService) * 100)}%` : "100%";
       const delayedCount = Number(status.delayed || 0) + Number(status.stopped || 0) + Number(status.disrupted || 0);
-      const criticalCount = events.filter((row) => row.severity === "critical" && !row.is_acknowledged).length;
+      const ackStats = getEventAckStats();
+      const criticalCount = Number(ackStats.critical_unacked ?? events.filter((row) => row.severity === "critical" && !row.is_acknowledged).length);
       const mttrSource = events.filter((row) => row.is_acknowledged && row.acknowledged_at && row.created_at);
       let mttr = "-";
       if (mttrSource.length) {
@@ -3163,15 +3264,42 @@
       ].join("\n");
     }
 
-    function computeOldestUnackedMinutes() {
-      const unacked = (state.latestEvents || []).filter((row) => !row.is_acknowledged && row.created_at);
-      if (!unacked.length) return null;
+    function getEventAckStats() {
+      const stats = state.latestSummary?.event_ack_stats;
+      if (stats && typeof stats === "object") return stats;
+      const unacked = (state.latestEvents || []).filter((row) => !row.is_acknowledged);
+      const criticalUnacked = unacked.filter((row) => row.severity === "critical").length;
+      const warningUnacked = unacked.filter((row) => row.severity === "warning").length;
+      const vehicleUnacked = unacked.filter((row) => String(row.event_type || "").startsWith("VEHICLE")).length;
+      return {
+        total_unacked: unacked.length,
+        critical_unacked: criticalUnacked,
+        warning_unacked: warningUnacked,
+        vehicle_unacked: vehicleUnacked,
+        oldest_unacked_minutes: computeOldestUnackedMinutesFromEvents(unacked),
+        oldest_critical_unacked_minutes: computeOldestUnackedMinutesFromEvents(
+          unacked.filter((row) => row.severity === "critical")
+        ),
+      };
+    }
+
+    function computeOldestUnackedMinutesFromEvents(rows = []) {
+      if (!rows.length) return null;
       const now = Date.now();
-      const oldest = Math.max(...unacked.map((row) => {
+      const oldest = Math.max(...rows.map((row) => {
         const created = parseUtcIso(row.created_at);
         return Number.isFinite(created) ? (now - created) / 60000 : 0;
       }));
       return Math.max(oldest, 0);
+    }
+
+    function computeOldestUnackedMinutes() {
+      const stats = state.latestSummary?.event_ack_stats;
+      if (stats && stats.oldest_unacked_minutes != null) {
+        return Number(stats.oldest_unacked_minutes);
+      }
+      const unacked = (state.latestEvents || []).filter((row) => !row.is_acknowledged && row.created_at);
+      return computeOldestUnackedMinutesFromEvents(unacked);
     }
 
     function renderAiStatus(aiStatus) {
@@ -3440,11 +3568,11 @@
 
     function renderSideDockSummary() {
       const summary = state.latestSummary || { status_counts: {} };
-      const events = state.latestEvents || [];
-      const criticalUnacked = events.filter((row) => row.severity === "critical" && !row.is_acknowledged).length;
+      const ackStats = getEventAckStats();
+      const criticalUnacked = Number(ackStats.critical_unacked || 0);
       const oldestMinutes = computeOldestUnackedMinutes();
       const delayed = Number(summary.status_counts?.delayed || 0) + Number(summary.status_counts?.stopped || 0) + Number(summary.status_counts?.disrupted || 0);
-      const unresolved = events.filter((row) => !row.is_acknowledged).length;
+      const unresolved = Number(ackStats.total_unacked ?? (state.latestEvents || []).filter((row) => !row.is_acknowledged).length);
 
       const criticalText = `${criticalUnacked}건`;
       const oldestText = oldestMinutes === null ? "-" : `${Math.round(oldestMinutes)}분`;
@@ -3579,8 +3707,10 @@
 
     function updateAckActionState() {
       const allowed = canAcknowledge();
-      $("event-ack-all").disabled = !allowed;
-      $("event-ack-all").title = allowed ? "현재 필터 기준 미확인 이벤트를 일괄 확인 처리" : "관제사/관리자 권한 필요";
+      const ackButton = $("event-ack-all");
+      if (!ackButton) return;
+      ackButton.disabled = !allowed;
+      ackButton.title = allowed ? "현재 필터 기준 미확인 이벤트를 일괄 확인 처리" : "관제사/관리자 권한 필요";
     }
 
     function updateDockActionState() {
@@ -4233,6 +4363,353 @@
       }).join("");
     }
 
+    function congestionLabelToPct(label) {
+      const map = { low: 25, medium: 58, high: 86 };
+      return map[String(label || "").toLowerCase()] ?? 58;
+    }
+
+    function estimatePassengerLoad(train, trainId = state.selectedTrainId) {
+      const ratio = Number(train?.congestion_ratio);
+      if (Number.isFinite(ratio) && ratio > 0) {
+        return Math.max(120, Math.round(ratio * 2200));
+      }
+      const id = Number(trainId || train?.train_id || 0);
+      return Math.max(320, Math.round(420 + (id % 17) * 55));
+    }
+
+    function updateForecastLiveBadge(mode = "live") {
+      const badge = $("forecast-live-badge");
+      if (!badge) return;
+      if (!state.selectedTrainId) {
+        badge.textContent = "예측 갱신: 열차를 선택하면 5초마다 자동 반영됩니다.";
+        return;
+      }
+      const stamp = state.lastForecastRefreshAt
+        ? new Date(state.lastForecastRefreshAt).toLocaleTimeString("ko-KR")
+        : "-";
+      if (mode === "static") {
+        badge.textContent = `모델 학습 지표 · 재학습 시 갱신 · 예측값은 ${stamp} 기준`;
+        return;
+      }
+      badge.textContent = state.autoRefresh
+        ? `실시간 예측 · 마지막 갱신 ${stamp} · 자동갱신 ON (5초)`
+        : `예측 스냅샷 · 마지막 갱신 ${stamp} · 자동갱신 OFF`;
+    }
+
+    function updateSelectedTrainKpis(train) {
+      if (!train || Number(train.train_id) !== Number(state.selectedTrainId)) return;
+      if ($("detail-train")) $("detail-train").textContent = train.train_number || "-";
+      if ($("detail-route")) $("detail-route").textContent = train.route_name || "-";
+      if ($("detail-speed")) $("detail-speed").textContent = `${train.speed_kmh ?? 0} km/h`;
+      if ($("detail-eta")) $("detail-eta").textContent = `${train.eta_minutes ?? 0}분`;
+      if ($("detail-status")) $("detail-status").textContent = train.operation_status || train.service_phase || "-";
+      if (state.latestForecast) {
+        syncDetailCongestionFromForecast(state.latestForecast);
+      } else if ($("detail-congestion")) {
+        const pct = Number.isFinite(Number(train.congestion_ratio))
+          ? Math.round(Number(train.congestion_ratio) * 100)
+          : congestionLabelToPct(train.congestion);
+        $("detail-congestion").textContent = `${pct}% (${String(train.congestion || "medium").toUpperCase()})`;
+      }
+    }
+
+    function syncSelectedTrainSpeedHistory(train, serverHistory = null) {
+      if (!train || Number(train.train_id) !== Number(state.selectedTrainId)) return;
+      if (Array.isArray(serverHistory) && serverHistory.length) {
+        state.selectedTrainSpeedHistory = serverHistory.slice(-30);
+        renderSpeedSpark(state.selectedTrainSpeedHistory);
+        return;
+      }
+      const speed = Number(train.speed_kmh);
+      if (!Number.isFinite(speed)) return;
+      const stamp = train.updated_at || new Date().toISOString();
+      const history = state.selectedTrainSpeedHistory;
+      const last = history[history.length - 1];
+      if (last && last.timestamp === stamp && last.speed_kmh === speed) return;
+      history.push({
+        speed_kmh: speed,
+        timestamp: stamp,
+        congestion: train.congestion,
+        congestion_ratio: train.congestion_ratio,
+      });
+      if (history.length > 30) history.shift();
+      renderSpeedSpark(history);
+    }
+
+    function buildForecastHistoryPayload() {
+      return (state.selectedTrainSpeedHistory || []).map((row) => ({
+        speed_kmh: row.speed_kmh,
+        timestamp: row.timestamp,
+        congestion: row.congestion,
+        congestion_ratio: row.congestion_ratio,
+      }));
+    }
+
+    async function refreshSelectedTrainForecast(options = {}) {
+      const trainId = Number(state.selectedTrainId);
+      if (!trainId || state.forecastRefreshInFlight) return false;
+      const selectedTrain = state.trainById[String(trainId)] || state.allTrains.find((row) => Number(row.train_id) === trainId);
+      if (!selectedTrain) return false;
+
+      updateSelectedTrainKpis(selectedTrain);
+      syncSelectedTrainSpeedHistory(selectedTrain);
+
+      state.forecastRefreshInFlight = true;
+      try {
+        const response = await api("/api/scmaglev/ml/congestion/forecast", {
+          method: "POST",
+          body: JSON.stringify({
+            train_id: trainId,
+            hour: new Date().getHours(),
+            route_name: selectedTrain.route_name || "전국 통합",
+            recent_passengers: estimatePassengerLoad(selectedTrain, trainId),
+            is_event_day: false,
+            train_snapshot: selectedTrain,
+            history: buildForecastHistoryPayload(),
+          }),
+        });
+        const forecast = response.forecast;
+        if (forecast) {
+          applyForecastState(forecast);
+          if (!options.silent && $("predict-result")) {
+            const primary = forecast.forecasts?.["10"] || {};
+            $("predict-result").textContent = `실시간 예측 · 10분 뒤 ${primary.ensemble_pct ?? "-"}% (${String(primary.ensemble_label || "").toUpperCase()})`;
+          }
+        }
+        return true;
+      } catch (error) {
+        if (!options.silent) {
+          $("predict-result").textContent = `실시간 예측 실패: ${error.message}`;
+        }
+        return false;
+      } finally {
+        state.forecastRefreshInFlight = false;
+      }
+    }
+
+    async function ensureDefaultTrainSelection() {
+      if (state.selectedTrainId) return;
+      const candidate = (state.allTrains || []).find((row) => row.is_in_service || row.service_phase === "in_service")
+        || (state.allTrains || [])[0];
+      if (!candidate?.train_id) return;
+      try {
+        await loadTrainDetail(Number(candidate.train_id));
+      } catch (_) {
+        // 첫 열차 상세 로드 실패 시 수동 선택 유도
+      }
+    }
+
+    function formatHorizonPrediction(row, kind = "ensemble") {
+      if (!row) return "-";
+      const labelKey = kind === "ml" ? "ml_label" : kind === "dl" ? "dl_label" : "ensemble_label";
+      const pctKey = kind === "ml" ? "ml_pct" : kind === "dl" ? "dl_pct" : "ensemble_pct";
+      return `${String(row[labelKey] || "").toUpperCase()} (${row[pctKey]}%)`;
+    }
+
+    function formatEnsembleHorizon(row) {
+      if (!row) return "-";
+      return `${row.ensemble_pct}% · ${String(row.ensemble_label || "").toUpperCase()}`;
+    }
+
+    function formatForecastReferenceTime(iso) {
+      const ms = parseUtcIso(iso);
+      return Number.isFinite(ms) ? new Date(ms).toLocaleString("ko-KR") : "-";
+    }
+
+    function mergeForecastWithModelInfo(forecast) {
+      const info = state.modelInfo || {};
+      const merged = { ...(forecast || {}) };
+      merged.model_version = merged.model_version || info.version || info.active_version || "-";
+      merged.data_status = merged.data_status || info.data_status || info.data_source || "-";
+      merged.models = {
+        ml: {
+          ...(merged.models?.ml || {}),
+          metrics_test: merged.models?.ml?.metrics_test
+            || info.models?.ml?.metrics?.overall_test
+            || {},
+        },
+        dl: {
+          ...(merged.models?.dl || {}),
+          metrics_test: merged.models?.dl?.metrics_test
+            || info.models?.dl?.metrics?.overall_test
+            || {},
+        },
+      };
+      merged.ensemble = {
+        ...(info.ensemble || {}),
+        ...(merged.ensemble || {}),
+      };
+      return merged;
+    }
+
+    function syncDetailCongestionFromForecast(forecast) {
+      if (!$("detail-congestion") || !forecast) return;
+      const pct = Number(forecast.current_congestion_pct);
+      const label = String(forecast.current_congestion_label || forecast.current_congestion || "medium").toUpperCase();
+      if (Number.isFinite(pct)) {
+        $("detail-congestion").textContent = `${pct}% (${label})`;
+      }
+    }
+
+    function applyForecastState(forecast, options = {}) {
+      if (!forecast) return;
+      state.latestForecast = forecast;
+      const merged = mergeForecastWithModelInfo(forecast);
+      const setForecast = (id, labelId, key) => {
+        const row = merged.forecasts?.[key];
+        if (!row) return;
+        if ($(id)) $(id).textContent = `${row.ensemble_pct}%`;
+        if ($(labelId)) $(labelId).textContent = ` · ${String(row.ensemble_label || "").toUpperCase()}`;
+      };
+      setForecast("forecast-5m", "forecast-5m-label", "5");
+      setForecast("forecast-10m", "forecast-10m-label", "10");
+      setForecast("forecast-15m", "forecast-15m-label", "15");
+      if ($("forecast-reference-time")) {
+        $("forecast-reference-time").textContent = formatForecastReferenceTime(merged.reference_time);
+      }
+      if ($("forecast-data-status")) $("forecast-data-status").textContent = merged.data_status || "-";
+      const statusText = merged.reliability_note || merged.prediction_status || "-";
+      if ($("forecast-status")) $("forecast-status").textContent = statusText;
+      if ($("model-guidance")) $("model-guidance").textContent = statusText;
+      const primary = merged.forecasts?.["10"];
+      if (primary) {
+        if ($("model-ml")) $("model-ml").textContent = formatHorizonPrediction(primary, "ml");
+        if ($("model-dl")) $("model-dl").textContent = formatHorizonPrediction(primary, "dl");
+        if ($("model-ensemble")) $("model-ensemble").textContent = formatHorizonPrediction(primary, "ensemble");
+      }
+      if ($("model-ensemble-weights") && merged.ensemble) {
+        $("model-ensemble-weights").textContent = `ML ${merged.ensemble.ml_weight} / DL ${merged.ensemble.dl_weight}`;
+      }
+      renderForecastChart(merged);
+      renderAiInfoCards(merged);
+      syncDetailCongestionFromForecast(merged);
+      state.lastForecastRefreshAt = Date.now();
+      updateForecastLiveBadge(options.static ? "static" : "live");
+    }
+
+    function renderForecastPanel(forecast) {
+      applyForecastState(forecast);
+    }
+
+    function renderForecastChart(forecast) {
+      const svg = $("congestion-forecast-svg");
+      if (!svg) return;
+      if (!forecast) {
+        svg.innerHTML = '<text x="12" y="60" fill="#94a3b8" font-size="12">예측 결과 없음</text>';
+        return;
+      }
+      const history = forecast.chart_series?.history || [];
+      const future = forecast.chart_series?.forecast || [];
+      const points = [];
+      history.forEach((item, idx) => {
+        points.push({
+          xLabel: item.minutes_offset ?? -(history.length - idx),
+          y: Number(item.congestion_pct ?? forecast.current_congestion_pct ?? 0),
+          kind: "actual",
+        });
+      });
+      if (!points.length) {
+        points.push({ xLabel: 0, y: Number(forecast.current_congestion_pct || 0), kind: "actual" });
+      }
+      future.forEach((item) => {
+        points.push({
+          xLabel: item.minutes_offset,
+          y: Number(item.ensemble_pct || 0),
+          yMl: Number(item.ml_pct || 0),
+          yDl: Number(item.dl_pct || 0),
+          kind: "forecast",
+        });
+      });
+      const xs = points.map((p) => p.xLabel);
+      const minX = Math.min(...xs, -5);
+      const maxX = Math.max(...xs, 15);
+      const width = 360;
+      const height = 120;
+      const pad = 16;
+      const xScale = (x) => pad + ((x - minX) / Math.max(maxX - minX, 1)) * (width - pad * 2);
+      const yScale = (y) => height - pad - (Math.max(0, Math.min(100, y)) / 100) * (height - pad * 2);
+      const actualPoints = points.filter((p) => p.kind === "actual");
+      const forecastPoints = points.filter((p) => p.kind === "forecast");
+      const line = (rows, key = "y") => rows.map((p, idx) => `${idx === 0 ? "M" : "L"} ${xScale(p.xLabel).toFixed(1)} ${yScale(p[key]).toFixed(1)}`).join(" ");
+      svg.innerHTML = `
+        <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" stroke="#334155" stroke-width="1"/>
+        <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height - pad}" stroke="#334155" stroke-width="1"/>
+        ${actualPoints.length ? `<path d="${line(actualPoints)}" fill="none" stroke="#38bdf8" stroke-width="2"/>` : ""}
+        ${forecastPoints.length ? `<path d="${line(forecastPoints, "yMl")}" fill="none" stroke="#22c55e" stroke-width="1.5" stroke-dasharray="4 3"/>` : ""}
+        ${forecastPoints.length ? `<path d="${line(forecastPoints, "yDl")}" fill="none" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="4 3"/>` : ""}
+        ${forecastPoints.length ? `<path d="${line(forecastPoints)}" fill="none" stroke="#f59e0b" stroke-width="2.5"/>` : ""}
+        <text x="${pad}" y="12" fill="#94a3b8" font-size="10">실제(파랑) · ML(초록) · DL(보라) · Ensemble(주황)</text>
+      `;
+    }
+
+    function renderAiInfoCards(forecast) {
+      const mlMetrics = forecast?.models?.ml?.metrics_test || {};
+      const dlMetrics = forecast?.models?.dl?.metrics_test || {};
+      const version = forecast?.model_version || "-";
+      const staticBadge = '<span class="status-pill">학습 지표 · 재학습 시 갱신</span>';
+      const liveBadge = '<span class="status-pill">실시간 · 상단 패널과 동일</span>';
+      const primary = forecast?.forecasts?.["10"];
+      const row5 = forecast?.forecasts?.["5"];
+      const row15 = forecast?.forecasts?.["15"];
+      const liveMl = formatHorizonPrediction(primary, "ml");
+      const liveDl = formatHorizonPrediction(primary, "dl");
+      const liveEnsemble = formatHorizonPrediction(primary, "ensemble");
+      const refTime = formatForecastReferenceTime(forecast?.reference_time);
+      if ($("ai-info-ml")) {
+        $("ai-info-ml").innerHTML = `
+          <strong>머신러닝 (ML)</strong> ${staticBadge}<br>
+          ${primary ? `<strong>10분 예측 ${liveBadge}</strong> ${esc(liveMl)}<br>` : ""}
+          모델: Random Forest Regressor · 버전 ${esc(String(version))}<br>
+          라이브러리: scikit-learn<br>
+          기준 시점: ${esc(refTime)} · 데이터 ${esc(String(forecast?.data_status || "-"))}<br>
+          테스트 MAE: ${mlMetrics.mae ?? "-"} · RMSE: ${mlMetrics.rmse ?? "-"} · R²: ${mlMetrics.r2 ?? "-"}
+        `;
+      }
+      if ($("ai-info-dl")) {
+        $("ai-info-dl").innerHTML = `
+          <strong>딥러닝 (DL)</strong> ${staticBadge}<br>
+          ${primary ? `<strong>10분 예측 ${liveBadge}</strong> ${esc(liveDl)}<br>` : ""}
+          모델: LSTM (2-layer) · 버전 ${esc(String(version))}<br>
+          프레임워크: PyTorch · 입력 12 step<br>
+          기준 시점: ${esc(refTime)} · 데이터 ${esc(String(forecast?.data_status || "-"))}<br>
+          테스트 MAE: ${dlMetrics.mae ?? "-"} · RMSE: ${dlMetrics.rmse ?? "-"} · R²: ${dlMetrics.r2 ?? "-"}
+        `;
+      }
+      if ($("ai-info-ensemble")) {
+        $("ai-info-ensemble").innerHTML = `
+          <strong>앙상블 (Ensemble)</strong> ${liveBadge}<br>
+          ${primary ? `<strong>10분 예측</strong> ${esc(liveEnsemble)}<br>` : ""}
+          ${row5 && row15 ? `<strong>5/10/15분 Ensemble</strong> ${esc(formatEnsembleHorizon(row5))} / ${esc(formatEnsembleHorizon(primary))} / ${esc(formatEnsembleHorizon(row15))}<br>` : ""}
+          결합 방식: ${esc(String(forecast?.ensemble?.method || "validation_mae_inverse_weighted_average"))}<br>
+          가중치: ML ${forecast?.ensemble?.ml_weight ?? "-"} / DL ${forecast?.ensemble?.dl_weight ?? "-"}<br>
+          데이터 출처: ${esc(String(forecast?.data_status || "-"))} · 기준 ${esc(refTime)}
+        `;
+      }
+    }
+
+    async function loadModelInfoPanel(options = {}) {
+      try {
+        const response = await api("/api/scmaglev/ml/congestion/model-info");
+        state.modelInfo = response.model_info || {};
+        state.modelInfoRefreshAt = Date.now();
+        if (state.latestForecast) {
+          applyForecastState(state.latestForecast, { static: false });
+        } else if (state.modelInfo?.models) {
+          applyForecastState({
+            model_version: state.modelInfo.version || state.modelInfo.active_version,
+            models: {
+              ml: { metrics_test: state.modelInfo.models.ml?.metrics?.overall_test || {} },
+              dl: { metrics_test: state.modelInfo.models.dl?.metrics?.overall_test || {} },
+            },
+            ensemble: state.modelInfo.ensemble || {},
+            data_status: state.modelInfo.data_status || state.modelInfo.data_source,
+          }, { static: !state.selectedTrainId || options.forceStaticBadge });
+        }
+      } catch (_) {
+        // model info is optional on boot
+      }
+    }
+
     function isRetryableError(error) {
       if (!error) return false;
       if ([502, 503, 504].includes(Number(error.status))) return true;
@@ -4382,10 +4859,17 @@
     function renderEventSummaryCards(rows = state.latestEvents || []) {
       const target = $("event-summary-cards");
       if (!target) return;
+      const ackStats = getEventAckStats();
       const unacked = rows.filter((row) => !row.is_acknowledged);
-      const critical = unacked.filter((row) => row.severity === "critical").length;
-      const warning = unacked.filter((row) => row.severity === "warning").length;
-      const vehicle = unacked.filter((row) => String(row.event_type || "").startsWith("VEHICLE")).length;
+      const critical = Number.isFinite(Number(ackStats.critical_unacked))
+        ? Number(ackStats.critical_unacked)
+        : unacked.filter((row) => row.severity === "critical").length;
+      const warning = Number.isFinite(Number(ackStats.warning_unacked))
+        ? Number(ackStats.warning_unacked)
+        : unacked.filter((row) => row.severity === "warning").length;
+      const vehicle = Number.isFinite(Number(ackStats.vehicle_unacked))
+        ? Number(ackStats.vehicle_unacked)
+        : unacked.filter((row) => String(row.event_type || "").startsWith("VEHICLE")).length;
       target.innerHTML = `
         <div class="event-summary-card" data-filter-severity="critical">
           <span class="meta">미ACK Critical</span>
@@ -4464,29 +4948,34 @@
     }
 
     async function loadEventLogs() {
-      const params = new URLSearchParams({ limit: "40" });
-      const severity = $("event-severity-filter").value;
-      const eventType = $("event-type-filter").value;
-      const ackFilter = $("event-ack-filter").value;
-      const eventGroup = state.selectedEventGroup || "";
-      if (severity) params.set("severity", severity);
-      if (eventType) params.set("event_type", eventType);
-      if (eventGroup) params.set("event_group", eventGroup);
-      if (ackFilter) params.set("acknowledged", ackFilter);
-      const response = await api(`/api/scmaglev/dashboard/events?${params.toString()}`);
-      const rows = response.events || [];
-      state.latestEvents = rows;
-      if (state.selectedIncidentId && !rows.some((row) => Number(row.id) === Number(state.selectedIncidentId))) {
-        state.selectedIncidentId = null;
+      try {
+        const params = new URLSearchParams({ limit: "40" });
+        const severity = $("event-severity-filter").value;
+        const eventType = $("event-type-filter").value;
+        const ackFilter = $("event-ack-filter").value;
+        const eventGroup = state.selectedEventGroup || "";
+        if (severity) params.set("severity", severity);
+        if (eventType) params.set("event_type", eventType);
+        if (eventGroup) params.set("event_group", eventGroup);
+        if (ackFilter) params.set("acknowledged", ackFilter);
+        const response = await api(`/api/scmaglev/dashboard/events?${params.toString()}`);
+        const rows = response.events || [];
+        state.latestEvents = rows;
+        if (state.selectedIncidentId && !rows.some((row) => Number(row.id) === Number(state.selectedIncidentId))) {
+          state.selectedIncidentId = null;
+        }
+        renderEventSummaryCards(rows);
+        renderEventDetailList(rows);
+        updateEventLogViewToggle();
+        renderIncidentTop3();
+        renderIncidentResponse();
+        renderCommandCenter();
+        renderSideDockSummary();
+        updateAckActionState();
+      } catch (error) {
+        setOpsStatus(`이벤트 조회 실패: ${error.message}`, true);
+        throw error;
       }
-      renderEventSummaryCards(rows);
-      renderEventDetailList(rows);
-      updateEventLogViewToggle();
-      renderIncidentTop3();
-      renderIncidentResponse();
-      renderCommandCenter();
-      renderSideDockSummary();
-      updateAckActionState();
     }
 
     async function loadEventFilterOptions() {
@@ -4511,9 +5000,11 @@
       try {
         await api(`/api/scmaglev/dashboard/events/${eventId}/ack`, { method: "POST" });
         pushActionTimeline(`이벤트 #${eventId} ACK 처리`);
-        await loadEventLogs();
         await loadDashboardSummary();
+        await loadEventLogs();
         renderSideDockSummary();
+        renderCommandCenter();
+        renderEventSummaryCards(state.latestEvents || []);
       } catch (error) {
         const text = error.status === 403
           ? `ACK 권한 없음: ${error.message}`
@@ -4594,9 +5085,11 @@
         if (count > 0) {
           pushActionTimeline(`미확인 이벤트 ${count}건 일괄 ACK 처리`);
         }
-        await loadEventLogs();
         await loadDashboardSummary();
+        await loadEventLogs();
         renderSideDockSummary();
+        renderCommandCenter();
+        renderEventSummaryCards(state.latestEvents || []);
       } catch (error) {
         const text = error.status === 403
           ? `일괄 ACK 권한 없음: ${error.message}`
@@ -4703,8 +5196,15 @@
         }
         const data = await fetchWithRetry("/api/scmaglev/dashboard/trains", 3, 1500);
         state.allTrains = data.trains || [];
+        for (const row of state.allTrains) {
+          state.trainById[String(row.train_id)] = {
+            ...(state.trainById[String(row.train_id)] || {}),
+            ...row,
+          };
+        }
         renderRouteHealthPanel();
         await refreshTrainView({ liveOnly });
+        await ensureDefaultTrainSelection();
       } catch (error) {
         updateLocationInfo([], null, `실시간 데이터 불러오기 실패: ${error.message}`);
       } finally {
@@ -4721,52 +5221,87 @@
     }
 
     async function runPrediction() {
-      const modelType = $("predict-model").value;
-      const response = await api("/api/scmaglev/ml/congestion/predict", {
-        method: "POST",
-        body: JSON.stringify({
-          hour: new Date().getHours(),
-          route_name: "전국 통합",
-          recent_passengers: Math.floor(400 + Math.random() * 1200),
-          is_event_day: false,
-          model_type: modelType
-        }),
-      });
-      const pred = response.prediction;
-      $("predict-result").textContent = `모델 ${pred.model_type.toUpperCase()} · 혼잡도 ${pred.label.toUpperCase()} · 신뢰도 ${pred.confidence}`;
-      await loadModelComparison();
-    }
-
-    async function loadModelComparison() {
+      if (!state.selectedTrainId) {
+        $("predict-result").textContent = "먼저 열차를 선택해주세요.";
+        return;
+      }
+      $("predict-result").textContent = "혼잡도 예측 실행 중...";
       const routeName = $("detail-route").textContent && $("detail-route").textContent !== "-"
         ? $("detail-route").textContent
         : "전국 통합";
+      const selectedTrain = state.trainById[String(state.selectedTrainId)] || {};
+      const passengerLoad = estimatePassengerLoad(selectedTrain, state.selectedTrainId);
+      const response = await api("/api/scmaglev/ml/congestion/forecast", {
+        method: "POST",
+        body: JSON.stringify({
+          train_id: state.selectedTrainId,
+          hour: new Date().getHours(),
+          route_name: routeName,
+          recent_passengers: passengerLoad,
+          is_event_day: false,
+          train_snapshot: selectedTrain,
+          history: buildForecastHistoryPayload(),
+        }),
+      });
+      const forecast = response.forecast;
+      applyForecastState(forecast);
+      const primary = forecast?.forecasts?.["10"] || {};
+      $("predict-result").textContent = `예측 완료 · 10분 뒤 ${primary.ensemble_pct ?? "-"}% (${String(primary.ensemble_label || "").toUpperCase()}) · ${forecast.data_status || ""}`;
+    }
+
+    async function loadModelComparison(existingForecast = null) {
+      const routeName = $("detail-route").textContent && $("detail-route").textContent !== "-"
+        ? $("detail-route").textContent
+        : "전국 통합";
+      const selectedTrain = state.selectedTrainId
+        ? (state.trainById[String(state.selectedTrainId)] || state.allTrains.find((row) => Number(row.train_id) === Number(state.selectedTrainId)))
+        : null;
+      const passengerLoad = selectedTrain
+        ? estimatePassengerLoad(selectedTrain, state.selectedTrainId)
+        : 720;
+      if (existingForecast) {
+        applyForecastState(existingForecast);
+        return;
+      }
       const payload = {
         hour: new Date().getHours(),
         route_name: routeName,
-        recent_passengers: Math.floor(500 + Math.random() * 1100),
+        recent_passengers: passengerLoad,
         is_event_day: false,
+        train_id: state.selectedTrainId || undefined,
+        train_snapshot: selectedTrain || undefined,
+        history: state.selectedTrainId ? buildForecastHistoryPayload() : undefined,
       };
       const response = await api("/api/scmaglev/ml/congestion/compare", {
         method: "POST",
         body: JSON.stringify(payload),
       });
       const comparison = response.comparison;
-      $("model-ml").textContent = `${comparison.ml.label.toUpperCase()} (${comparison.ml.confidence})`;
-      $("model-dl").textContent = `${comparison.dl.label.toUpperCase()} (${comparison.dl.confidence})`;
-      $("model-ensemble").textContent = `${comparison.ensemble.label.toUpperCase()} (${comparison.ensemble.risk_score})`;
-      $("model-guidance").textContent = comparison.ensemble.guidance;
+      const forecast = comparison.forecast;
+      if (forecast) {
+        applyForecastState(forecast);
+      } else {
+        $("model-ml").textContent = `${comparison.ml.label.toUpperCase()} (${comparison.ml.confidence})`;
+        $("model-dl").textContent = `${comparison.dl.label.toUpperCase()} (${comparison.dl.confidence})`;
+        $("model-ensemble").textContent = `${comparison.ensemble.label.toUpperCase()} (${comparison.ensemble.risk_score})`;
+        if ($("model-guidance")) $("model-guidance").textContent = comparison.ensemble.guidance;
+      }
     }
 
     async function loadTrainDetail(trainId) {
       try {
         const data = await api(`/api/scmaglev/dashboard/train/${trainId}`);
         const train = data.train;
+        const previousTrainId = Number(state.selectedTrainId);
         state.selectedTrainId = trainId;
+        if (previousTrainId !== Number(trainId)) {
+          state.selectedTrainSpeedHistory = [];
+        }
         $("detail-train").textContent = train.train_number || "-";
         $("detail-route").textContent = train.route_name || "-";
         $("detail-speed").textContent = `${train.speed_kmh} km/h`;
         $("detail-eta").textContent = `${train.eta_minutes}분`;
+        if ($("detail-status")) $("detail-status").textContent = train.operation_status || train.service_phase || "-";
         if (train.fault?.label) {
           $("predict-result").textContent = `고장 원인: ${train.fault.label}${train.fault.detail ? ` · ${train.fault.detail}` : ""}`;
         }
@@ -4776,12 +5311,20 @@
         }
         updateDetailFaultPanel();
         updateFaultRecoveryControls();
-        renderSpeedSpark(data.history || []);
-        if (data.predictions) {
-          $("model-ml").textContent = `${data.predictions.ml.label.toUpperCase()} (${data.predictions.ml.confidence})`;
-          $("model-dl").textContent = `${data.predictions.dl.label.toUpperCase()} (${data.predictions.dl.confidence})`;
-          const localRisk = ((Number(data.predictions.ml.confidence) + Number(data.predictions.dl.confidence)) / 2).toFixed(3);
-          $("model-ensemble").textContent = `${data.predictions.ml.label === data.predictions.dl.label ? data.predictions.ml.label.toUpperCase() : "MIXED"} (${localRisk})`;
+        syncSelectedTrainSpeedHistory(train, data.history || []);
+        if (data.forecast) {
+          applyForecastState(data.forecast);
+        } else {
+          if ($("detail-congestion")) {
+            const pct = congestionLabelToPct(train.congestion);
+            $("detail-congestion").textContent = `${pct}% (${String(train.congestion || "medium").toUpperCase()})`;
+          }
+          if (data.predictions) {
+            $("model-ml").textContent = `${data.predictions.ml.label.toUpperCase()} (${data.predictions.ml.confidence})`;
+            $("model-dl").textContent = `${data.predictions.dl.label.toUpperCase()} (${data.predictions.dl.confidence})`;
+            const localRisk = ((Number(data.predictions.ml.confidence) + Number(data.predictions.dl.confidence)) / 2).toFixed(3);
+            $("model-ensemble").textContent = `${data.predictions.ml.label === data.predictions.dl.label ? data.predictions.ml.label.toUpperCase() : "MIXED"} (${localRisk})`;
+          }
         }
         state.trains = applyTrainFilters(state.allTrains);
         state.trainById[String(trainId)] = {
@@ -4813,7 +5356,20 @@
         const socket = io({ transports: ["websocket", "polling"] });
         socket.on("train_locations", (payload) => {
           state.allTrains = payload.trains || [];
+          for (const row of state.allTrains) {
+            state.trainById[String(row.train_id)] = {
+              ...(state.trainById[String(row.train_id)] || {}),
+              ...row,
+            };
+          }
           refreshTrainView({ liveOnly: true });
+          if (state.selectedTrainId) {
+            const selected = state.trainById[String(state.selectedTrainId)];
+            if (selected) {
+              updateSelectedTrainKpis(selected);
+              syncSelectedTrainSpeedHistory(selected);
+            }
+          }
         });
       } catch (_) {
         // websocket 실패 시 폴링으로 유지
@@ -5072,11 +5628,15 @@
       await loadLocationSnapshot();
       if (state.selectedTrainId) {
         await loadTrainDetail(state.selectedTrainId);
+        await refreshSelectedTrainForecast({ silent: true });
+      } else {
+        await ensureDefaultTrainSelection();
       }
     });
     bindClick("toggle-auto-refresh", () => {
       state.autoRefresh = !state.autoRefresh;
       $("auto-refresh-state").textContent = `자동갱신: ${state.autoRefresh ? "ON (3~5초)" : "OFF"}`;
+      updateForecastLiveBadge("live");
       $("toggle-auto-refresh").innerHTML = state.autoRefresh
         ? '<i class="icon">⏸️</i>자동갱신 일시정지'
         : '<i class="icon">▶️</i>자동갱신 재개';
@@ -5097,9 +5657,16 @@
       await initDashboardStep("dashboard summary", () => loadDashboardSummary());
       await initDashboardStep("station heatmap", () => loadStationHeatmap());
       await initDashboardStep("event logs", () => loadEventLogs());
-      await initDashboardStep("location snapshot", () => loadLocationSnapshot());
-      await initDashboardStep("prediction", () => runPrediction());
-      await initDashboardStep("model comparison", () => loadModelComparison());
+      await initDashboardStep("location snapshot", async () => {
+        await loadLocationSnapshot();
+        await ensureDefaultTrainSelection();
+      });
+      await initDashboardStep("congestion model info", () => loadModelInfoPanel({ forceStaticBadge: !state.selectedTrainId }));
+      await initDashboardStep("model comparison", async () => {
+        if (!state.latestForecast) {
+          await loadModelComparison();
+        }
+      });
       connectSocket();
       startTrainMotionLoop();
 
@@ -5113,6 +5680,12 @@
         await loadDashboardSummary();
         await loadEventFilterOptions();
         await loadEventLogs();
+        if (state.selectedTrainId) {
+          await refreshSelectedTrainForecast({ silent: true });
+        }
+        if (!state.modelInfoRefreshAt || Date.now() - state.modelInfoRefreshAt > 60000) {
+          await loadModelInfoPanel();
+        }
       }, 5000));
       state.pollTimers.push(setInterval(async () => {
         if (!state.autoRefresh) return;

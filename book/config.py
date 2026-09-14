@@ -25,13 +25,23 @@ def _normalize_database_url(raw_url):
     return raw_url
 
 
+def _default_database_uri():
+    return _normalize_database_url(os.getenv("DATABASE_URL")) or (
+        f"sqlite:///{os.path.join(BASE_DIR, 'app.db')}"
+    )
+
+
 class Config:
 
-    SQLALCHEMY_DATABASE_URI = _normalize_database_url(
-        os.getenv("DATABASE_URL")
-    ) or f"sqlite:///{os.path.join(BASE_DIR, 'app.db')}"
+    SQLALCHEMY_DATABASE_URI = _default_database_uri()
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    SQLALCHEMY_ENGINE_OPTIONS = (
+        {"connect_args": {"check_same_thread": False, "timeout": 60}}
+        if str(_default_database_uri()).startswith("sqlite")
+        else {}
+    )
 
     JWT_SECRET_KEY = "TV7yFDizlFFTLYtttcSh9I4Y0gZT2-a5j65uJJB4938"
 

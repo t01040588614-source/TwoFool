@@ -318,3 +318,72 @@ class OperationEventLog(db.Model):
         default=lambda: datetime.now(UTC),
         index=True,
     )
+
+
+class CongestionObservation(db.Model):
+    """열차별 혼잡도·운행 시계열 (운영 중 자동 수집)."""
+
+    __tablename__ = "congestion_observations"
+
+    id = db.Column(db.Integer, primary_key=True)
+    measured_at = db.Column(db.DateTime, nullable=False, index=True)
+    train_id = db.Column(db.Integer, db.ForeignKey("trains.id"), nullable=False, index=True)
+    route_id = db.Column(db.Integer, db.ForeignKey("routes.id"), nullable=True, index=True)
+    station_id = db.Column(db.Integer, db.ForeignKey("stations.id"), nullable=True, index=True)
+    congestion_ratio = db.Column(db.Float, nullable=False)
+    congestion_label = db.Column(db.String(20), nullable=False, default="medium")
+    passengers_board = db.Column(db.Integer, nullable=False, default=0)
+    passengers_alight = db.Column(db.Integer, nullable=False, default=0)
+    headway_min = db.Column(db.Float, nullable=False, default=8.0)
+    speed_kmh = db.Column(db.Float, nullable=False, default=0.0)
+    operation_status = db.Column(db.String(20), nullable=False, default="normal")
+    data_origin = db.Column(db.String(30), nullable=False, default="operational", index=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
+
+
+class StationPassengerFlow(db.Model):
+    """역별 승하차 시계열."""
+
+    __tablename__ = "station_passenger_flows"
+
+    id = db.Column(db.Integer, primary_key=True)
+    measured_at = db.Column(db.DateTime, nullable=False, index=True)
+    station_id = db.Column(db.Integer, db.ForeignKey("stations.id"), nullable=False, index=True)
+    train_id = db.Column(db.Integer, db.ForeignKey("trains.id"), nullable=True, index=True)
+    route_id = db.Column(db.Integer, db.ForeignKey("routes.id"), nullable=True, index=True)
+    passengers_board = db.Column(db.Integer, nullable=False, default=0)
+    passengers_alight = db.Column(db.Integer, nullable=False, default=0)
+    data_origin = db.Column(db.String(30), nullable=False, default="operational", index=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
+
+
+class RouteHeadwaySnapshot(db.Model):
+    """노선별 배차 간격 스냅샷."""
+
+    __tablename__ = "route_headway_snapshots"
+
+    id = db.Column(db.Integer, primary_key=True)
+    measured_at = db.Column(db.DateTime, nullable=False, index=True)
+    route_id = db.Column(db.Integer, db.ForeignKey("routes.id"), nullable=False, index=True)
+    headway_min = db.Column(db.Float, nullable=False)
+    active_trains = db.Column(db.Integer, nullable=False, default=0)
+    data_origin = db.Column(db.String(30), nullable=False, default="operational", index=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
+
+
+class ModelTrainingRun(db.Model):
+    """혼잡도 AI 모델 학습·버전 이력."""
+
+    __tablename__ = "model_training_runs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    version_tag = db.Column(db.String(40), unique=True, nullable=False, index=True)
+    data_source = db.Column(db.String(40), nullable=False)
+    sample_count = db.Column(db.Integer, nullable=False, default=0)
+    operational_sample_count = db.Column(db.Integer, nullable=False, default=0)
+    ml_mae = db.Column(db.Float, nullable=True)
+    dl_mae = db.Column(db.Float, nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    metadata_json = db.Column(db.Text, nullable=True)
+    trained_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(UTC), index=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))

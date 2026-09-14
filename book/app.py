@@ -23,7 +23,22 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import Config
 from extensions import db, jwt
-from ml_predictor import compare_congestion_models, predict_congestion
+from congestion_ai.constants import WARMUP_ON_STARTUP
+from congestion_ai.data_collector import (
+    bootstrap_operational_history,
+    get_data_collection_stats,
+    label_to_ratio,
+    record_operational_snapshot,
+)
+from congestion_ai.model_registry import list_versions, promote_version
+from congestion_ai.retrain_scheduler import run_scheduled_retrain, should_retrain, start_retrain_scheduler
+from congestion_ai.service import get_forecast_service
+from ml_predictor import (
+    compare_congestion_models,
+    forecast_congestion,
+    get_congestion_model_info,
+    predict_congestion,
+)
 from models import (
     Comment,
     OperationEventLog,
@@ -124,6 +139,8 @@ _startup_lock = threading.Lock()
 _startup_init_started = False
 _simulator_started = False
 _simulator_lock = threading.Lock()
+_db_write_lock = threading.RLock()
+_schedule_persist_counter = 0
 MAX_HISTORY_POINTS = 30
 train_history = defaultdict(lambda: deque(maxlen=MAX_HISTORY_POINTS))
 train_fault_recovery_at = {}
@@ -666,20 +683,83 @@ def align_schedule_for_live_service(schedule, train, current_time):
     return True
 
 
-def refresh_schedule_for_service(schedule, current_time):
-    """지난 운행은 다음 운행일로 넘겨 검색·시뮬레이션에 계속 노출되게 합니다."""
-    changed = rollover_schedule_to_current_service_day(schedule, current_time)
-    duration = schedule.arrival_time - schedule.departure_time
+def compute_effective_schedule(schedule, train, current_time):
+    """DB를 수정하지 않고 현재 시점의 유효 출발·도착 시각을 계산합니다."""
+    departure = schedule.departure_time
+    arrival = schedule.arrival_time
+    duration = arrival - departure
     if duration.total_seconds() <= 0:
         duration = timedelta(minutes=30)
-    while schedule.arrival_time < current_time - timedelta(hours=1):
-        schedule.departure_time = schedule.departure_time + timedelta(days=1)
-        schedule.arrival_time = schedule.departure_time + duration
-        changed = True
 
-    train = db.session.get(Train, schedule.train_id)
-    if train and align_schedule_for_live_service(schedule, train, current_time):
+    schedule_day = service_day(departure)
+    current_day = service_day(current_time)
+    if schedule_day < current_day:
+        shift_days = (current_day - schedule_day).days
+        departure = departure + timedelta(days=shift_days)
+        arrival = arrival + timedelta(days=shift_days)
+
+    while arrival < current_time - timedelta(hours=1):
+        departure = departure + timedelta(days=1)
+        arrival = departure + duration
+
+    if train:
+        window_minutes = _direct_service_window_minutes()
+        phase = _direct_schedule_phase_minutes(train.train_number)
+        target_departure = current_time - timedelta(minutes=window_minutes - phase)
+        target_arrival = target_departure + duration
+        if target_arrival < current_time - timedelta(minutes=20):
+            shift = max(window_minutes // 2, int(duration.total_seconds() // 60) + 5)
+            target_departure += timedelta(minutes=shift)
+            target_arrival = target_departure + duration
+        if target_departure > current_time + timedelta(minutes=90):
+            target_departure -= timedelta(minutes=max(window_minutes // 3, 30))
+            target_arrival = target_departure + duration
+        if not (
+            abs((departure - target_departure).total_seconds()) < 60
+            and abs((arrival - target_arrival).total_seconds()) < 60
+        ):
+            departure = target_departure
+            arrival = target_arrival
+
+    return departure, arrival
+
+
+def resolve_train_service_phase_times(departure, arrival, current_time):
+    if current_time < departure:
+        return "waiting"
+    if current_time >= arrival:
+        return "arrived"
+    return "in_service"
+
+
+def refresh_schedule_for_service(schedule, current_time):
+    """지난 운행은 다음 운행일로 넘겨 검색·시뮬레이션에 계속 노출되게 합니다."""
+    effective_departure, effective_arrival = compute_effective_schedule(
+        schedule,
+        db.session.get(Train, schedule.train_id),
+        current_time,
+    )
+    changed = False
+    if schedule.departure_time != effective_departure:
+        schedule.departure_time = effective_departure
         changed = True
+    if schedule.arrival_time != effective_arrival:
+        schedule.arrival_time = effective_arrival
+        changed = True
+    return changed
+
+
+def persist_all_schedule_refreshes(current_time=None):
+    """스케줄 DB 갱신은 주기적으로만 수행 (SQLite lock 방지)."""
+    current_time = current_time or now_utc_naive()
+    changed = False
+    with db.session.no_autoflush:
+        for schedule in Schedule.query.all():
+            train = db.session.get(Train, schedule.train_id)
+            if train and refresh_schedule_for_service(schedule, current_time):
+                changed = True
+    if changed:
+        commit_with_sqlite_retry(max_attempts=8, delay_seconds=0.25)
     return changed
 
 
@@ -742,6 +822,17 @@ def flush_with_sqlite_retry(max_attempts=5, delay_seconds=0.2):
 def configure_sqlite():
     if not str(db.engine.url).startswith("sqlite"):
         return
+
+    from sqlalchemy import event
+
+    @event.listens_for(db.engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=60000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
+
     db.session.execute(text("PRAGMA journal_mode=WAL"))
     db.session.execute(text("PRAGMA busy_timeout=60000"))
     db.session.execute(text("PRAGMA synchronous=NORMAL"))
@@ -1518,7 +1609,7 @@ def resolve_train_service_phase(schedule, current_time):
     return "in_service"
 
 
-def _update_train_location(location):
+def _update_train_location(location, *, defer_observation=False):
     train = db.session.get(Train, location.train_id)
     if not train:
         return None
@@ -1537,21 +1628,22 @@ def _update_train_location(location):
         return None
 
     current_time = now_utc_naive()
-    refresh_schedule_for_service(schedule, current_time)
-    total_seconds = max(
-        (schedule.arrival_time - schedule.departure_time).total_seconds(), 1)
-    elapsed_seconds = (current_time - schedule.departure_time).total_seconds()
-    if current_time < schedule.departure_time:
+    effective_departure, effective_arrival = compute_effective_schedule(
+        schedule, train, current_time)
+    total_seconds = max((effective_arrival - effective_departure).total_seconds(), 1)
+    elapsed_seconds = (current_time - effective_departure).total_seconds()
+    if current_time < effective_departure:
         schedule_progress = 0.0
         location.operation_status = "normal"
-    elif current_time >= schedule.arrival_time:
+    elif current_time >= effective_arrival:
         schedule_progress = 1.0
         location.operation_status = "arrived"
     else:
         schedule_progress = min(max(elapsed_seconds / total_seconds, 0.0), 1.0)
         location.operation_status = "normal"
 
-    service_phase = resolve_train_service_phase(schedule, current_time)
+    service_phase = resolve_train_service_phase_times(
+        effective_departure, effective_arrival, current_time)
     is_in_service = service_phase == "in_service"
     is_waiting_departure = service_phase == "waiting"
     if is_in_service:
@@ -1569,12 +1661,12 @@ def _update_train_location(location):
     ) * map_progress
     if service_phase == "waiting":
         remaining_minutes = max(
-            int((schedule.departure_time - current_time).total_seconds() // 60), 0)
+            int((effective_departure - current_time).total_seconds() // 60), 0)
     elif service_phase == "arrived":
         remaining_minutes = 0
     else:
         remaining_minutes = max(
-            int((schedule.arrival_time - current_time).total_seconds() // 60), 0)
+            int((effective_arrival - current_time).total_seconds() // 60), 0)
     location.eta_minutes = remaining_minutes
 
     distance_km = _haversine_km(
@@ -1607,14 +1699,16 @@ def _update_train_location(location):
     is_direct = _is_direct_train_number(train.train_number) or (
         route is not None and route.code == DIRECT_ROUTE_CODE
     )
-    prediction = predict_congestion(
-        hour=current_time.hour,
-        route_name=route.name if route else "",
-        recent_passengers=random.randint(120, 1200),
-        is_event_day=False,
-        model_type="ml",
-    )
-    location.congestion = prediction["label"]
+    passenger_load = _estimate_train_passenger_load(train.id, {"congestion": location.congestion})
+    congestion_ratio = min(max(passenger_load / 2200.0, 0.12), 0.95)
+    if current_time.hour in {7, 8, 9, 18, 19, 20}:
+        congestion_ratio = min(congestion_ratio + 0.06, 0.98)
+    if congestion_ratio >= 0.72:
+        location.congestion = "high"
+    elif congestion_ratio >= 0.42:
+        location.congestion = "medium"
+    else:
+        location.congestion = "low"
 
     payload = {
         "train_id": train.id,
@@ -1635,10 +1729,11 @@ def _update_train_location(location):
         "next_station": arrival_station.name,
         "operation_status": location.operation_status,
         "congestion": location.congestion,
+        "congestion_ratio": congestion_ratio,
         "fault": serialize_train_fault(location),
         "updated_at": current_time.isoformat(),
-        "schedule_departure_time": schedule.departure_time.isoformat(),
-        "schedule_arrival_time": schedule.arrival_time.isoformat(),
+        "schedule_departure_time": effective_departure.isoformat(),
+        "schedule_arrival_time": effective_arrival.isoformat(),
         "departure_latitude": departure_station.latitude,
         "departure_longitude": departure_station.longitude,
         "arrival_latitude": arrival_station.latitude,
@@ -1656,10 +1751,22 @@ def _update_train_location(location):
             "speed_kmh": location.speed_kmh,
             "eta_minutes": location.eta_minutes,
             "congestion": location.congestion,
+            "congestion_ratio": congestion_ratio,
             "latitude": payload["latitude"],
             "longitude": payload["longitude"],
         }
     )
+    if not defer_observation:
+        try:
+            record_operational_snapshot(
+                train_id=train.id,
+                route_id=train.route_id,
+                station_id=departure_station.id,
+                payload=payload,
+                measured_at=current_time,
+            )
+        except Exception as exc:
+            app.logger.debug("congestion observation skipped: %s", exc)
     return payload
 
 
@@ -1669,15 +1776,47 @@ def _broadcast_train_locations(payload):
 
 
 def run_location_simulator():
+    from congestion_ai.data_collector import record_observations_batch
+
+    global _schedule_persist_counter
     while True:
         with app.app_context():
-            locations = TrainLocation.query.all()
             payload = []
-            for location in locations:
-                row = _update_train_location(location)
-                if row:
-                    payload.append(row)
-            db.session.commit()
+            observation_batch = []
+            try:
+                with _db_write_lock:
+                    with db.session.no_autoflush:
+                        locations = TrainLocation.query.all()
+                        for location in locations:
+                            row = _update_train_location(location, defer_observation=True)
+                            if not row:
+                                continue
+                            payload.append(row)
+                            observation_batch.append(
+                                {
+                                    "train_id": row["train_id"],
+                                    "route_id": row.get("route_id"),
+                                    "station_id": location.next_station_id,
+                                    "payload": row,
+                                    "measured_at": now_utc_naive(),
+                                }
+                            )
+                    commit_with_sqlite_retry(max_attempts=8, delay_seconds=0.25)
+                    if observation_batch:
+                        try:
+                            record_observations_batch(observation_batch)
+                        except Exception as exc:
+                            app.logger.debug("batch observation skipped: %s", exc)
+                    _schedule_persist_counter += 1
+                    if _schedule_persist_counter % 20 == 0:
+                        try:
+                            persist_all_schedule_refreshes()
+                        except Exception as exc:
+                            app.logger.debug("schedule persist skipped: %s", exc)
+            except OperationalError as exc:
+                db.session.rollback()
+                if "database is locked" not in str(exc).lower():
+                    app.logger.warning("simulator tick failed: %s", exc)
             if payload:
                 _broadcast_train_locations(payload)
         time.sleep(SIMULATION_INTERVAL_SECONDS)
@@ -2728,11 +2867,18 @@ def scmaglev_train_locations():
     locations = TrainLocation.query.order_by(
         TrainLocation.train_id.asc()).all()
     payload = []
-    for location in locations:
-        item = _update_train_location(location)
-        if item:
-            payload.append(item)
-    db.session.commit()
+    try:
+        with _db_write_lock:
+            with db.session.no_autoflush:
+                for location in locations:
+                    item = _update_train_location(location, defer_observation=True)
+                    if item:
+                        payload.append(item)
+            commit_with_sqlite_retry(max_attempts=6, delay_seconds=0.2)
+    except OperationalError as exc:
+        db.session.rollback()
+        app.logger.warning("train-locations update failed: %s", exc)
+        return jsonify({"interval_seconds": SIMULATION_INTERVAL_SECONDS, "trains": []}), 503
     return jsonify({"interval_seconds": SIMULATION_INTERVAL_SECONDS, "trains": payload})
 
 
@@ -2917,6 +3063,45 @@ def build_station_congestion_heatmap():
     return heatmap
 
 
+def build_event_ack_stats():
+    """미ACK 이벤트 집계 — 대시보드 사이드 패널·요약 카드용 (전체 DB 기준)."""
+    now = now_utc_naive()
+    base = OperationEventLog.query.filter(
+        OperationEventLog.is_acknowledged.is_(False)
+    )
+    total_unacked = base.count()
+    critical_unacked = base.filter(
+        OperationEventLog.severity == "critical"
+    ).count()
+    warning_unacked = base.filter(
+        OperationEventLog.severity == "warning"
+    ).count()
+    vehicle_unacked = base.filter(
+        OperationEventLog.event_type.like("VEHICLE%")
+    ).count()
+
+    def _oldest_minutes(query):
+        row = query.order_by(OperationEventLog.created_at.asc()).first()
+        if not row or not row.created_at:
+            return None
+        elapsed = (now - row.created_at).total_seconds() / 60.0
+        return max(round(elapsed, 1), 0.0)
+
+    oldest_unacked_minutes = _oldest_minutes(base)
+    oldest_critical_unacked_minutes = _oldest_minutes(
+        base.filter(OperationEventLog.severity == "critical")
+    )
+
+    return {
+        "total_unacked": total_unacked,
+        "critical_unacked": critical_unacked,
+        "warning_unacked": warning_unacked,
+        "vehicle_unacked": vehicle_unacked,
+        "oldest_unacked_minutes": oldest_unacked_minutes,
+        "oldest_critical_unacked_minutes": oldest_critical_unacked_minutes,
+    }
+
+
 def build_dashboard_summary():
     locations = TrainLocation.query.all()
     current_time = now_utc_naive()
@@ -2943,8 +3128,10 @@ def build_dashboard_summary():
         )
         if not schedule:
             continue
-        refresh_schedule_for_service(schedule, current_time)
-        phase = resolve_train_service_phase(schedule, current_time)
+        effective_departure, effective_arrival = compute_effective_schedule(
+            schedule, train, current_time)
+        phase = resolve_train_service_phase_times(
+            effective_departure, effective_arrival, current_time)
         phase_by_location_id[location.train_id] = phase
         fleet_counts[phase] += 1
         if phase == "waiting":
@@ -3018,15 +3205,8 @@ def build_dashboard_summary():
                     "fault": fault,
                 }
             )
-        predicted.append(
-            predict_congestion(
-                hour=current_hour,
-                route_name=route.name if route else "",
-                recent_passengers=random.randint(200, 1800),
-                is_event_day=False,
-                model_type="ml",
-            )
-        )
+        congestion_label = str(location.congestion or "medium").lower()
+        predicted.append({"label": congestion_label})
 
     high_count = sum(1 for item in predicted if item["label"] == "high")
     medium_count = sum(1 for item in predicted if item["label"] == "medium")
@@ -3070,7 +3250,11 @@ def build_dashboard_summary():
         )
 
     if alarms:
-        db.session.commit()
+        try:
+            commit_with_sqlite_retry(max_attempts=6, delay_seconds=0.2)
+        except Exception:
+            db.session.rollback()
+            app.logger.debug("alarm event commit skipped", exc_info=True)
 
     prediction_summary = {
         "high": high_count,
@@ -3103,6 +3287,7 @@ def build_dashboard_summary():
             for code, count in sorted(fault_counts.items(), key=lambda item: (-item[1], item[0]))
         ],
         "alarms": alarms,
+        "event_ack_stats": build_event_ack_stats(),
         "prediction_summary": prediction_summary,
         "passenger_trust": build_passenger_control_trust(status_counts, prediction_summary),
         "passenger_notices": build_passenger_notices(),
@@ -3210,23 +3395,30 @@ def scmaglev_clear_train_fault(train_id):
     note = str(data.get("note", "")).strip()
     previous_fault = serialize_train_fault(location)
     current_time = now_utc_naive()
-    clear_train_fault(location, train, current_time)
-
     user_id = int(get_jwt_identity())
-    log_operation_event(
-        event_type="CONTROL_VEHICLE_FAULT_CLEARED",
-        message=note or f"{train.train_number} {previous_fault['label']} 고장 수동 복구 처리",
-        severity="info",
-        source="controller",
-        user_id=user_id,
-        train_id=train.id,
-        payload={
-            "action_type": "VEHICLE_FAULT_CLEAR",
-            "previous_fault": previous_fault,
-            "note": note or None,
-        },
-    )
-    commit_with_sqlite_retry()
+    try:
+        with _db_write_lock:
+            clear_train_fault(location, train, current_time)
+            log_operation_event(
+                event_type="CONTROL_VEHICLE_FAULT_CLEARED",
+                message=note or f"{train.train_number} {previous_fault['label']} 고장 수동 복구 처리",
+                severity="info",
+                source="controller",
+                user_id=user_id,
+                train_id=train.id,
+                payload={
+                    "action_type": "VEHICLE_FAULT_CLEAR",
+                    "previous_fault": previous_fault,
+                    "note": note or None,
+                },
+            )
+            commit_with_sqlite_retry(max_attempts=8, delay_seconds=0.25)
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("고장 복구 처리 실패: train_id=%s", train_id)
+        return jsonify({
+            "message": "고장 복구 처리 중 서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+        }), 500
     return jsonify(
         {
             "message": f"{train.train_number} 고장 복구 처리 완료",
@@ -3279,20 +3471,21 @@ def scmaglev_ack_dashboard_events_bulk():
     now = now_utc_naive()
     ack_ids = []
     try:
-        for row in rows:
-            row.is_acknowledged = True
-            row.acknowledged_at = now
-            ack_ids.append(row.id)
-        log_operation_event(
-            event_type="ALARM_BULK_ACKNOWLEDGED",
-            message=f"이벤트 일괄 확인 처리: {len(ack_ids)}건",
-            severity="info",
-            source="controller",
-            user_id=user_id,
-            payload={"event_ids": ack_ids[:50],
-                     "acknowledged_count": len(ack_ids)},
-        )
-        db.session.commit()
+        with _db_write_lock:
+            for row in rows:
+                row.is_acknowledged = True
+                row.acknowledged_at = now
+                ack_ids.append(row.id)
+            log_operation_event(
+                event_type="ALARM_BULK_ACKNOWLEDGED",
+                message=f"이벤트 일괄 확인 처리: {len(ack_ids)}건",
+                severity="info",
+                source="controller",
+                user_id=user_id,
+                payload={"event_ids": ack_ids[:50],
+                         "acknowledged_count": len(ack_ids)},
+            )
+            commit_with_sqlite_retry(max_attempts=8, delay_seconds=0.25)
     except Exception:
         db.session.rollback()
         app.logger.exception("이벤트 일괄 ACK 처리 실패")
@@ -3320,17 +3513,18 @@ def scmaglev_ack_dashboard_event(event_id):
 
     user_id = int(get_jwt_identity())
     try:
-        event.is_acknowledged = True
-        event.acknowledged_at = now_utc_naive()
-        log_operation_event(
-            event_type="ALARM_ACKNOWLEDGED",
-            message=f"이벤트 확인 처리: {event.id}",
-            severity="info",
-            source="controller",
-            user_id=user_id,
-            payload={"event_id": event.id},
-        )
-        db.session.commit()
+        with _db_write_lock:
+            event.is_acknowledged = True
+            event.acknowledged_at = now_utc_naive()
+            log_operation_event(
+                event_type="ALARM_ACKNOWLEDGED",
+                message=f"이벤트 확인 처리: {event.id}",
+                severity="info",
+                source="controller",
+                user_id=user_id,
+                payload={"event_id": event.id},
+            )
+            commit_with_sqlite_retry(max_attempts=8, delay_seconds=0.25)
     except Exception:
         db.session.rollback()
         app.logger.exception("이벤트 ACK 처리 실패: event_id=%s", event_id)
@@ -3432,21 +3626,29 @@ def scmaglev_dashboard_action():
         resolved_station_id = target_event.station_id
 
     user_id = int(get_jwt_identity())
-    event = log_operation_event(
-        event_type=spec["event_type"],
-        message=note or spec["default_message"],
-        severity=spec["severity"],
-        source="controller",
-        user_id=user_id,
-        train_id=resolved_train_id,
-        station_id=resolved_station_id,
-        payload={
-            "action_type": action_type,
-            "target_event_id": target_event.id if target_event else None,
-            "note": note or None,
-        },
-    )
-    commit_with_sqlite_retry()
+    try:
+        with _db_write_lock:
+            event = log_operation_event(
+                event_type=spec["event_type"],
+                message=note or spec["default_message"],
+                severity=spec["severity"],
+                source="controller",
+                user_id=user_id,
+                train_id=resolved_train_id,
+                station_id=resolved_station_id,
+                payload={
+                    "action_type": action_type,
+                    "target_event_id": target_event.id if target_event else None,
+                    "note": note or None,
+                },
+            )
+            commit_with_sqlite_retry(max_attempts=8, delay_seconds=0.25)
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("dashboard action failed: %s", action_type)
+        return jsonify({
+            "message": "운영 액션 기록 중 서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+        }), 500
     return jsonify(
         {
             "message": "운영 액션이 기록되었습니다.",
@@ -3472,15 +3674,21 @@ def scmaglev_dashboard_trains():
         locations = TrainLocation.query.order_by(
             TrainLocation.train_id.asc()).all()
         payload = []
-        for location in locations:
-            item = _update_train_location(location)
-            if not item:
-                continue
-            if status_filter and item["operation_status"] != status_filter:
-                continue
-            payload.append(item)
-        db.session.commit()
+        with _db_write_lock:
+            with db.session.no_autoflush:
+                for location in locations:
+                    item = _update_train_location(location, defer_observation=True)
+                    if not item:
+                        continue
+                    if status_filter and item["operation_status"] != status_filter:
+                        continue
+                    payload.append(item)
+            commit_with_sqlite_retry(max_attempts=6, delay_seconds=0.2)
         return jsonify({"trains": payload, "status_filter": status_filter or "all"})
+    except OperationalError as exc:
+        db.session.rollback()
+        app.logger.warning("dashboard trains db lock: %s", exc)
+        return jsonify({"trains": [], "status_filter": status_filter or "all", "starting": True}), 503
     except Exception as exc:
         app.logger.exception("dashboard trains failed: %s", exc)
         return jsonify({"trains": [], "status_filter": status_filter or "all", "starting": True}), 503
@@ -3493,23 +3701,40 @@ def scmaglev_dashboard_train_detail(train_id):
     if not train or not location:
         return jsonify({"message": "열차 정보를 찾을 수 없습니다."}), 404
 
-    current = _update_train_location(location)
-    db.session.commit()
+    try:
+        with _db_write_lock:
+            with db.session.no_autoflush:
+                current = _update_train_location(location, defer_observation=True)
+            commit_with_sqlite_retry(max_attempts=6, delay_seconds=0.2)
+    except OperationalError as exc:
+        db.session.rollback()
+        app.logger.warning("train detail location update failed: %s", exc)
+        return jsonify({"message": "열차 위치 갱신 중 DB 잠금 — 잠시 후 다시 시도해주세요."}), 503
     if not current:
         return jsonify({"message": "열차 위치를 계산할 수 없습니다."}), 500
 
     history = list(train_history[train_id])
+    passenger_load = _estimate_train_passenger_load(train_id, current)
+    forecast = forecast_congestion(
+        hour=now_utc_naive().hour,
+        route_name=current.get("route_name") or "",
+        recent_passengers=passenger_load,
+        is_event_day=False,
+        train_id=train_id,
+        train_snapshot=current,
+        history=history,
+    )
     ml_prediction = predict_congestion(
         hour=now_utc_naive().hour,
         route_name=current.get("route_name") or "",
-        recent_passengers=random.randint(200, 1800),
+        recent_passengers=passenger_load,
         is_event_day=False,
         model_type="ml",
     )
     dl_prediction = predict_congestion(
         hour=now_utc_naive().hour,
         route_name=current.get("route_name") or "",
-        recent_passengers=random.randint(200, 1800),
+        recent_passengers=passenger_load,
         is_event_day=False,
         model_type="dl",
     )
@@ -3522,6 +3747,7 @@ def scmaglev_dashboard_train_detail(train_id):
                 "ml": ml_prediction,
                 "dl": dl_prediction,
             },
+            "forecast": forecast,
             "history_points": len(history),
         }
     )
@@ -3557,13 +3783,133 @@ def scmaglev_compare_congestion():
     recent_passengers = parse_int(
         data.get("recent_passengers", 500), 500, 0, 5000)
     is_event_day = bool(data.get("is_event_day", False))
+    train_id = parse_int(data.get("train_id"), 0, 1, 100000) if data.get("train_id") else None
+    train_snapshot = data.get("train_snapshot") if isinstance(data.get("train_snapshot"), dict) else None
+    history = data.get("history") if isinstance(data.get("history"), list) else None
+    if train_id and not train_snapshot:
+        train = db.session.get(Train, train_id)
+        location = TrainLocation.query.filter_by(train_id=train_id).first()
+        if train and location:
+            train_snapshot = _update_train_location(location) or {}
+            history = list(train_history.get(train_id, []))
     comparison = compare_congestion_models(
         hour=hour,
         route_name=route_name,
         recent_passengers=recent_passengers,
         is_event_day=is_event_day,
+        train_id=train_id,
+        train_snapshot=train_snapshot,
+        history=history,
     )
     return jsonify({"comparison": comparison})
+
+
+@app.route("/api/scmaglev/ml/congestion/forecast", methods=["POST"])
+def scmaglev_forecast_congestion():
+    data = request.get_json() or {}
+    hour = parse_int(data.get("hour", now_utc_naive().hour),
+                     now_utc_naive().hour, 0, 23)
+    route_name = str(data.get("route_name", "서울권 순환"))
+    recent_passengers = parse_int(
+        data.get("recent_passengers", 500), 500, 0, 5000)
+    is_event_day = bool(data.get("is_event_day", False))
+    train_id = parse_int(data.get("train_id"), 0, 1, 100000) if data.get("train_id") else None
+    history = data.get("history") if isinstance(data.get("history"), list) else None
+    train_snapshot = data.get("train_snapshot") if isinstance(data.get("train_snapshot"), dict) else None
+
+    if train_id and not train_snapshot:
+        train = db.session.get(Train, train_id)
+        location = TrainLocation.query.filter_by(train_id=train_id).first()
+        if train and location:
+            train_snapshot = _update_train_location(location) or {}
+            history = list(train_history.get(train_id, []))
+
+    try:
+        forecast = forecast_congestion(
+            hour=hour,
+            route_name=route_name,
+            recent_passengers=recent_passengers,
+            is_event_day=is_event_day,
+            train_id=train_id,
+            train_snapshot=train_snapshot,
+            history=history,
+        )
+    except Exception as exc:
+        app.logger.exception("congestion forecast failed: %s", exc)
+        return jsonify({"message": f"혼잡도 예측 실패: {exc}"}), 500
+
+    return jsonify({"forecast": forecast})
+
+
+@app.route("/api/scmaglev/ml/congestion/model-info", methods=["GET"])
+def scmaglev_congestion_model_info():
+    try:
+        info = get_congestion_model_info()
+    except Exception as exc:
+        app.logger.exception("congestion model info failed: %s", exc)
+        return jsonify({"message": f"모델 정보 조회 실패: {exc}"}), 500
+    return jsonify({"model_info": info})
+
+
+@app.route("/api/scmaglev/ml/congestion/train", methods=["POST"])
+def scmaglev_train_congestion_models():
+    data = request.get_json(silent=True) or {}
+    force = bool(data.get("force", True))
+    try:
+        service = get_forecast_service()
+        metadata = service.train_all(force=force, promote=True)
+    except Exception as exc:
+        app.logger.exception("congestion model training failed: %s", exc)
+        return jsonify({"message": f"모델 학습 실패: {exc}"}), 500
+    return jsonify({"message": "모델 학습 완료", "model_info": metadata})
+
+
+@app.route("/api/scmaglev/ml/congestion/data-stats", methods=["GET"])
+def scmaglev_congestion_data_stats():
+    return jsonify({"stats": get_data_collection_stats()})
+
+
+@app.route("/api/scmaglev/ml/congestion/versions", methods=["GET"])
+def scmaglev_congestion_versions():
+    return jsonify({"versions": list_versions()})
+
+
+@app.route("/api/scmaglev/ml/congestion/versions/<version>/promote", methods=["POST"])
+def scmaglev_promote_congestion_version(version):
+    if not promote_version(version):
+        return jsonify({"message": "버전을 찾을 수 없습니다."}), 404
+    service = get_forecast_service()
+    service._ready = False
+    service._load_artifacts()
+    service._ready = True
+    return jsonify({"message": f"버전 {version} 활성화 완료", "active_version": version})
+
+
+@app.route("/api/scmaglev/ml/congestion/retrain-status", methods=["GET"])
+def scmaglev_congestion_retrain_status():
+    ok, reason = should_retrain()
+    return jsonify({"should_retrain": ok, "reason": reason})
+
+
+@app.route("/api/scmaglev/ml/congestion/retrain", methods=["POST"])
+def scmaglev_congestion_retrain_now():
+    data = request.get_json(silent=True) or {}
+    try:
+        result = run_scheduled_retrain(force=bool(data.get("force", True)))
+    except Exception as exc:
+        app.logger.exception("congestion retrain failed: %s", exc)
+        return jsonify({"message": f"재학습 실패: {exc}"}), 500
+    return jsonify(result or {"retrained": False})
+
+
+def _estimate_train_passenger_load(train_id, train_snapshot):
+    base = 420 + (int(train_id) % 17) * 55
+    congestion = str((train_snapshot or {}).get("congestion") or "medium").lower()
+    if congestion == "high":
+        base += 380
+    elif congestion == "medium":
+        base += 180
+    return min(max(base, 120), 2200)
 
 
 def build_seat_recommendations(seats, reserved_seat_ids):
@@ -4881,6 +5227,12 @@ def _run_heavy_startup_tasks():
             bootstrap_direct_fleet_live_ops()
             ensure_demo_fault_trains()
             seed_default_operator_account()
+            created = bootstrap_operational_history(target_samples=600)
+            if created:
+                print(f"[SCMAGLEV] 혼잡도 bootstrap 관측 {created}건 생성.", flush=True)
+            if WARMUP_ON_STARTUP:
+                print("[SCMAGLEV] 혼잡도 AI 모델 warm-up 학습 중...", flush=True)
+                get_forecast_service().train_all(force=True, promote=True)
             print("[SCMAGLEV] DB 후처리 완료.", flush=True)
     except Exception as exc:
         app.logger.exception("SCMAGLEV DB 후처리 실패")
@@ -4911,6 +5263,7 @@ def initialize_scmaglev_data():
             ensure_direct_train_locations()
             print("[SCMAGLEV] 기본 DB 준비 완료 · API 사용 가능", flush=True)
         start_location_simulator()
+        start_retrain_scheduler(app)
         if os.environ.get("PYTEST_CURRENT_TEST"):
             _run_heavy_startup_tasks()
         else:
@@ -4931,7 +5284,9 @@ def _should_defer_startup():
     return bool(os.environ.get("PORT"))
 
 
-if _should_defer_startup():
+if os.environ.get("SCMAGLEV_SKIP_INIT") == "1":
+    _startup_state["ready"] = True
+elif _should_defer_startup():
     threading.Thread(target=initialize_scmaglev_data, daemon=True).start()
 else:
     initialize_scmaglev_data()

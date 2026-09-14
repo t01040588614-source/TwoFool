@@ -34,3 +34,10 @@ Thumbs.db
 # Temp / build
 *.log
 pptx_extract.txt
+
+# Trained congestion models (regenerated locally)
+book/congestion_ai/models_store/versions/
+book/congestion_ai/models_store/current_version.json
+book/congestion_ai/models_store/*.joblib
+book/congestion_ai/models_store/*.pt
+book/congestion_ai/models_store/metadata.json
