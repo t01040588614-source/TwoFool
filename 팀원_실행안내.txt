@@ -1,0 +1,67 @@
+SCMAGLEV 기차 프로젝트 — 팀원 실행 안내
+========================================
+
+1) 압축 해제
+   - ZIP을 풀면 아래 구조가 나와야 합니다.
+     [프로젝트폴더]
+       ├─ 백엔드 프로젝트 파일
+       │    ├─ templates   ← 메인·대시보드 AI UI (index.html, dashboard.html)
+       │    ├─ openai_*.py ← AI 백엔드
+       │    └─ run_server.bat
+       ├─ AI_연동안내.txt
+       └─ 팀원_실행안내.txt
+
+   ★ "백엔드 프로젝트 파일" 폴더 안에 templates 가 꼭 있어야
+     메인 AI 채팅·대시보드 AI가 보입니다.
+
+2) Python 설치 확인
+   - Python 3.10 이상 권장
+   - 명령 프롬프트에서: python --version
+
+3) .env 파일 만들기 (필수)
+   - "백엔드 프로젝트 파일" 폴더 안에 .env 파일 생성
+   - .env.example 을 복사해서 .env 로 이름 변경 후 아래만 먼저 채우기:
+
+     JWT_SECRET_KEY=아무거나-긴-랜덤-문자열-32자-이상
+
+   ※ JWT_SECRET_KEY 없으면 서버가 시작되지 않습니다.
+
+4) 패키지 설치 (최초 1회)
+   - "백엔드 프로젝트 파일" 폴더에서:
+     pip install -r requirements.txt
+
+5) 서버 실행
+   - run_server.bat 더블클릭
+   - 또는 같은 폴더에서: python app.py
+
+6) 접속 주소
+   - 승객 페이지: http://127.0.0.1:5001/
+   - 관제 대시보드: http://127.0.0.1:5001/dashboard
+
+7) 관제 로그인 (대시보드 ACK/운영 액션)
+   - 기본 계정: gygs1010 / zxc123123
+   - 로그인 후 "미확인 전체 ACK" 사용
+
+8) 자주 나는 오류
+   - 401 / 로그인 필요: 대시보드에서 관제 계정으로 다시 로그인
+   - ModuleNotFoundError: pip install -r requirements.txt 다시 실행
+   - 포트 5001 사용 중: run_server.bat 이 기존 프로세스를 종료함. 안 되면 PC 재부팅 후 재시도
+   - JWT_SECRET_KEY 오류: .env 파일 위치·내용 확인 (백엔드 프로젝트 파일 폴더 안)
+
+9) AI(GPT) 연동 — 코드는 ZIP에 포함됨, Key만 따로 필요
+   ★ AI 파일(openai_*.py)은 "백엔드 프로젝트 파일" 안에 있습니다.
+   ★ ZIP에 API Key는 보안상 빠져 있습니다. 팀장에게 OPENAI_API_KEY 받으세요.
+
+   .env 에 추가:
+     OPENAI_API_KEY=sk-팀장이-알려준-키
+     OPENAI_MODEL=gpt-4o-mini
+     OPENAI_ENABLED=auto
+
+   서버 재시작 후 확인:
+   - 승객/대시보드 상단 배지가 "GPT" 로 바뀌면 성공
+   - "규칙 기반" 이면 Key 없음 → AI_연동안내.txt 참고
+
+10) OpenAI / 결제 / 이메일 (선택)
+   - Key·토스·SMTP 없어도 기본 기능은 동작합니다.
+
+문의 시 함께 보낼 것: 오류 메시지, python --version, .env 설정, AI 배지 문구
