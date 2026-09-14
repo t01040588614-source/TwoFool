@@ -158,11 +158,21 @@ ALARM_COOLDOWN_SECONDS = 45
 alarm_last_emitted_at = {}
 SERVICE_DAY_RESET_HOUR = 4
 DIRECT_SERVICE_WINDOW_HOURS = 4
-MAX_DASHBOARD_TRACKED_TRAINS = (
-    30
-    if _render_lite_mode()
-    else int(os.getenv("SCMAGLEV_MAX_TRACKED_TRAINS", "688"))
-)
+def _resolve_max_dashboard_tracked_trains() -> int:
+    if _render_lite_mode():
+        default_cap = 120
+        hard_max = 200
+    else:
+        default_cap = 688
+        hard_max = 1200
+    try:
+        requested = int(os.getenv("SCMAGLEV_MAX_TRACKED_TRAINS", str(default_cap)))
+    except ValueError:
+        requested = default_cap
+    return max(30, min(requested, hard_max))
+
+
+MAX_DASHBOARD_TRACKED_TRAINS = _resolve_max_dashboard_tracked_trains()
 DIRECT_DASHBOARD_HUB_CODES = frozenset(
     {
         "SEO",
@@ -2044,6 +2054,7 @@ def select_dashboard_tracked_train_ids():
     selected = []
     seen = set()
 
+    route_cap = MAX_DASHBOARD_TRACKED_TRAINS // 2
     route_trains = (
         Train.query.filter(~Train.train_number.like("SM-D-%"))
         .order_by(Train.train_number.asc())
@@ -2054,8 +2065,8 @@ def select_dashboard_tracked_train_ids():
             continue
         seen.add(train.id)
         selected.append(train.id)
-        if len(selected) >= MAX_DASHBOARD_TRACKED_TRAINS:
-            return selected
+        if len(selected) >= route_cap:
+            break
 
     direct_trains = (
         Train.query.filter(Train.train_number.like("SM-D-%"))
