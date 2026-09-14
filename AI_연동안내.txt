@@ -13,7 +13,7 @@ SCMAGLEV — AI(GPT) 연동 안내 (팀원용)
   - openai_recommender.py (승객 추천 GPT 문구)
   - openai_config.py      (AI ON/OFF 설정)
 
-※ templates 는 "백엔드 프로젝트 파일" 폴더 안에 있어야 합니다.
+※ templates 는 "book" 폴더 안에 있어야 합니다.
   (백엔드만 따로 빼면 AI 화면이 안 나옵니다)
 
 ※ 별도 AI 파일이 없어 보이는 이유
@@ -23,7 +23,7 @@ SCMAGLEV — AI(GPT) 연동 안내 (팀원용)
 
 ■ 1) .env 설정 (필수 + AI)
 --------------------------
-"백엔드 프로젝트 파일" 폴더의 .env 파일에 아래를 추가:
+"book" 폴더의 .env 파일에 아래를 추가:
 
 JWT_SECRET_KEY=아무거나-긴-랜덤-문자열-32자-이상
 

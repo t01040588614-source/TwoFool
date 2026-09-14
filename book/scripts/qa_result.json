@@ -1,0 +1,66 @@
+﻿{
+  "pages": [
+    {
+      "path": "/",
+      "status": 200,
+      "content_type": "text/html; charset=utf-8",
+      "title": "SCMAGLEV ?뱀감沅뚯삁留?,
+      "charset_ok": true,
+      "korean_title_ok": true,
+      "mojibake": false,
+      "has_tokens_css": true,
+      "has_components_css": true,
+      "bytes": 255030
+    },
+    {
+      "path": "/dashboard",
+      "status": 200,
+      "content_type": "text/html; charset=utf-8",
+      "title": "SCMAGLEV 챗쨈?챙혻혵챙혙쩌챠혙째 챘혣?챙혢혵챘쨀쨈챘혫혵",
+      "charset_ok": true,
+      "korean_title_ok": true,
+      "mojibake": true,
+      "has_tokens_css": true,
+      "has_components_css": true,
+      "bytes": 206420
+    }
+  ],
+  "apis": [
+    {
+      "path": "/api/health",
+      "status": 200,
+      "sample": "{'ai': {'display_label': 'GPT 쨌 gpt-4o-mini', 'is_fine_tuned': False, 'label': 'GPT ?곕룞', 'model': 'gpt-4o-mini', 'model_type': 'standard', 'openai_configured': True, 'openai_enable"
+    },
+    {
+      "path": "/api/scmaglev/dashboard/public-summary",
+      "status": 200,
+      "sample": "{'ai_status': {'display_label': 'GPT 쨌 gpt-4o-mini', 'is_fine_tuned': False, 'label': 'GPT ?곕룞', 'model': 'gpt-4o-mini', 'model_type': 'standard', 'openai_configured': True, 'openai"
+    },
+    {
+      "path": "/api/scmaglev/dashboard/trains",
+      "status": 200,
+      "sample": "{'status_filter': 'all', 'trains': [{'arrival_latitude': 37.2636, 'arrival_longitude': 127.0286, 'arrival_station': '?섏썝', 'congestion': 'low', 'departure_latitude': 37.5665, 'depar"
+    }
+  ],
+  "static": [
+    {
+      "path": "/static/css/tokens.css",
+      "status": 200,
+      "bytes": 4017,
+      "content_type": "text/css; charset=utf-8"
+    },
+    {
+      "path": "/static/css/components.css",
+      "status": 200,
+      "bytes": 8749,
+      "content_type": "text/css; charset=utf-8"
+    }
+  ],
+  "errors": [],
+  "dashboard_summary": {
+    "in_service": 41,
+    "waiting": 57,
+    "arrived": 102,
+    "tracked": 200
+  }
+}

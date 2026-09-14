@@ -1,0 +1,12 @@
+Flask
+Flask-JWT-Extended
+Flask-SQLAlchemy
+Flask-SocketIO
+python-dotenv
+gunicorn>=22,<26
+eventlet
+pytest
+numpy
+pandas
+scikit-learn
+joblib

@@ -12,15 +12,15 @@
 - Test: Pytest
 
 ## 3) 주요 구성
-- `백엔드 프로젝트 파일/app.py`
+- `book/app.py`
   - 핵심 API 엔드포인트, 인증/인가, 예매/결제 상태 처리, 관제/AI API
-- `백엔드 프로젝트 파일/models.py`
+- `book/models.py`
   - User, Train, Station, Route, Schedule, Seat, Reservation, TrainLocation, OperationEventLog 모델
 - `templates/index.html`
   - 승객 서비스(검색, 좌석 선택, 예매, 결제 재시도, 예약 조회)
 - `templates/dashboard.html`
   - 관제 대시보드(실시간 위치, 이벤트 로그 필터, ACK, 상태 그래프)
-- `백엔드 프로젝트 파일/tests/test_scmaglev.py`
+- `book/tests/test_scmaglev.py`
   - 핵심 시나리오 검증 테스트
 
 ## 4) 핵심 기능 분석
@@ -54,7 +54,7 @@
 - 결제 호출 실패 시 사용자 메시지 및 재시도 경로 확보
 
 ## 7) 테스트 결과
-- 핵심 테스트 시나리오 통과: `15 passed`
+- 핵심 테스트 시나리오 통과: `51 passed`
 - 검증 영역
   - 예약/결제/재시도
   - 이벤트 로그 필터/ACK
@@ -62,7 +62,7 @@
   - 대시보드 응답 필드 일관성
 
 ## 8) 실행 가이드(요약)
-1. `백엔드 프로젝트 파일`에서 의존성 설치: `pip install -r requirements.txt`
+1. `book`에서 의존성 설치: `pip install -r requirements.txt`
 2. `.env` 구성(JWT 필수, 결제 테스트키 선택)
 3. `run_server.bat` 실행
 4. 접속

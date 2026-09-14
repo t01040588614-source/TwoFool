@@ -9,19 +9,11 @@
 ```env
 JWT_SECRET_KEY=change-this-to-a-long-random-secret
 
-# AI(GPT) — Key 넣고 서버 재시작하면 GPT 연동 (없으면 규칙 기반)
-OPENAI_API_KEY=sk-your-openai-api-key
-OPENAI_MODEL=gpt-4o-mini
-OPENAI_ENABLED=auto
-
 # 선택: 토스 테스트 결제창 사용 시
 TOSS_PAYMENTS_CLIENT_KEY=test_ck_your_real_value
 TOSS_PAYMENTS_SECRET_KEY=test_sk_your_real_value
 TOSS_PAYMENTS_MOCK_ONLY=0
 ```
-
-> AI 코드(`openai_*.py`)는 프로젝트에 포함되어 있습니다.  
-> API Key는 `.env`에 직접 넣어야 하며 ZIP에는 포함되지 않습니다.
 
 ## 3) 의존성 설치(최초 1회)
 - 터미널에서 아래 명령을 실행합니다.
@@ -40,4 +32,4 @@ pip install -r requirements.txt
 ## 6) 문제 해결
 - 페이지가 안 뜨면 서버 콘솔에 에러가 있는지 확인합니다.
 - 결제창이 안 뜨면 `.env`의 토스 키가 실제 테스트 키인지 확인합니다.
-- 실행 중 포트 충돌이 있으면 기존 5001 포트 사용 프로세스를 종료 후 재실행합니다
+- 실행 중 포트 충돌이 있으면 기존 5001 포트 사용 프로세스를 종료 후 재실행합니다.
