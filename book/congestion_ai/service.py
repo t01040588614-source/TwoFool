@@ -80,7 +80,8 @@ class CongestionForecastService:
         lstm_metrics = self.lstm.train(frame)
         ml_mae = rf_metrics["overall_test"]["mae"]
         dl_mae = lstm_metrics["overall_test"]["mae"]
-        weights = compute_ensemble_weights(ml_mae, dl_mae)
+        dl_r2 = lstm_metrics["overall_test"].get("r2")
+        weights = compute_ensemble_weights(ml_mae, dl_mae, dl_r2=dl_r2)
         version = make_version_tag()
 
         self.metadata = {
@@ -247,6 +248,7 @@ class CongestionForecastService:
         weights = self.metadata.get("ensemble") or compute_ensemble_weights(
             self.metadata["models"]["ml"]["metrics"]["overall_test"]["mae"],
             self.metadata["models"]["dl"]["metrics"]["overall_test"]["mae"],
+            dl_r2=self.metadata["models"]["dl"]["metrics"]["overall_test"].get("r2"),
         )
         ensemble_pred = blend_predictions(
             ml_pred,
