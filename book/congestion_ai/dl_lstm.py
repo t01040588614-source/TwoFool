@@ -5,9 +5,9 @@ from pathlib import Path
 
 import joblib
 import numpy as np
+from sklearn.preprocessing import StandardScaler
 import torch
 import torch.nn as nn
-from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, TensorDataset
 
 from congestion_ai.constants import FORECAST_HORIZONS_MIN, LSTM_MODEL_FILENAME, LSTM_SCALER_FILENAME, SEQUENCE_LENGTH

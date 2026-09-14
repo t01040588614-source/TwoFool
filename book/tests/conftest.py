@@ -1,12 +1,23 @@
 import os
+import warnings
 
 import pytest
 
-# app.py를 불러오기 전에 테스트 전용 메모리 DB를 지정합니다.
+# app.py를 불러오기 전에 테스트 전용 환경을 고정합니다(로컬 .env·시스템 env와 분리).
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["JWT_SECRET_KEY"] = "test-secret-key-for-pytest-must-be-32-bytes"
 os.environ["SCMAGLEV_SKIP_INIT"] = "1"
+os.environ["SCMAGLEV_RENDER_LITE"] = "0"
 os.environ["CONGESTION_AUTO_RETRAIN"] = "0"
+os.environ["CONGESTION_DISABLE_DL"] = "0"
+os.environ["CONGESTION_WARMUP_ON_STARTUP"] = "0"
+
+warnings.filterwarnings(
+    "ignore",
+    message="Setting the shape on a NumPy array has been deprecated",
+    category=DeprecationWarning,
+    module=r"joblib\.numpy_pickle",
+)
 
 from app import app, seed_scmaglev_data
 from extensions import db

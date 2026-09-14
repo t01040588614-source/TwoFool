@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
-import shutil
 from datetime import UTC, datetime
+import json
 from pathlib import Path
+import shutil
 
 from congestion_ai.constants import (
     CURRENT_VERSION_FILE,
@@ -77,7 +77,8 @@ def save_version(version: str, metadata: dict, rf, lstm) -> Path:
         shutil.rmtree(target)
     target.mkdir(parents=True, exist_ok=True)
     rf.save(target)
-    lstm.save(target)
+    if lstm is not None:
+        lstm.save(target)
     (target / METADATA_FILENAME).write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2),
         encoding="utf-8",
