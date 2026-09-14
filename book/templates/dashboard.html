@@ -3598,6 +3598,12 @@
       }
     }
 
+    function setRouteHealthMessage(message) {
+      const html = `<div class="mini-meta">${esc(message)}</div>`;
+      if ($("route-health-list")) $("route-health-list").innerHTML = html;
+      if ($("route-health-list-compact")) $("route-health-list-compact").innerHTML = html;
+    }
+
     function buildRouteHealthHtml(trains = state.allTrains || []) {
       const groups = new Map();
       for (const train of trains) {
@@ -3619,7 +3625,7 @@
             <div class="route-health-num">${formatHealthRate(row.rate)}</div>
           </div>
         `).join("")
-        : '<div class="mini-meta">노선 상태 데이터가 없습니다.</div>';
+        : '<div class="mini-meta">노선 상태 데이터를 불러오는 중...</div>';
     }
 
     function renderRouteHealthPanel() {
@@ -4720,7 +4726,7 @@
       return message.includes("연결") || message.includes("초기화") || message.includes("502") || message.includes("503");
     }
 
-    async function waitForBackend(maxMs = 60000) {
+    async function waitForBackend(maxMs = 120000) {
       const overlay = document.getElementById("boot-overlay");
       const statusNode = document.getElementById("boot-status");
       const started = Date.now();
@@ -4728,30 +4734,42 @@
       while (Date.now() - started < maxMs) {
         attempt += 1;
         try {
-          const ping = await fetch("/ping", { cache: "no-store" });
-          if (ping.ok) {
-            if (statusNode) statusNode.textContent = "서버 연결 완료 · 대시보드를 불러오는 중...";
-            if (overlay) overlay.hidden = true;
-            return true;
-          }
           const response = await fetch("/api/health", { cache: "no-store" });
           if (response.ok) {
             const data = await response.json();
+            let summary = null;
+            try {
+              const summaryResponse = await fetch("/api/scmaglev/dashboard/public-summary", { cache: "no-store" });
+              if (summaryResponse.ok) {
+                summary = await summaryResponse.json();
+              }
+            } catch (_) {}
+            const tracked = Number(
+              data.tracked_train_count
+              || summary?.tracked_train_count
+              || 0,
+            );
+            const trainsReady = Boolean(data.trains_ready || tracked > 0);
+            if (trainsReady) {
+              if (statusNode) statusNode.textContent = `운행 데이터 준비 완료 · 추적 ${tracked}대`;
+              if (overlay) overlay.hidden = true;
+              return true;
+            }
             if (statusNode) {
               statusNode.textContent = data.db_ready
-                ? "서버 연결 완료 · 대시보드를 불러오는 중..."
+                ? `열차·노선 데이터 준비 중... (${attempt}번째 확인)`
                 : "서버 초기화 중 · 데이터 준비 후 화면이 표시됩니다...";
             }
-            if (overlay) overlay.hidden = true;
-            return true;
+            if (data.db_ready && overlay) overlay.hidden = false;
           }
         } catch (_) {}
-        if (statusNode) {
+        if (statusNode && !statusNode.textContent.includes("준비 중")) {
           statusNode.textContent = `서버 연결 중... (${attempt}번째 시도 · 502면 30~90초 후 자동 재시도)`;
         }
         await new Promise((resolve) => window.setTimeout(resolve, 2000 + attempt * 500));
       }
       if (statusNode) statusNode.textContent = "연결이 지연되고 있습니다. Ctrl+F5로 새로고침해 주세요.";
+      if (overlay) overlay.hidden = true;
       return false;
     }
 
@@ -5199,6 +5217,14 @@
         }
         const data = await fetchWithRetry("/api/scmaglev/dashboard/trains", 3, 1500);
         state.allTrains = data.trains || [];
+        if (!state.allTrains.length) {
+          const warmupText = data.starting
+            ? "서버 warm-up 중 · 노선 상태를 불러오는 중..."
+            : "노선 상태 데이터를 불러오는 중... (Render 무료 플랜은 30~90초 걸릴 수 있음)";
+          setRouteHealthMessage(warmupText);
+          updateLocationInfo([], null, warmupText);
+          return;
+        }
         for (const row of state.allTrains) {
           state.trainById[String(row.train_id)] = {
             ...(state.trainById[String(row.train_id)] || {}),
@@ -5209,6 +5235,7 @@
         await refreshTrainView({ liveOnly });
         await ensureDefaultTrainSelection();
       } catch (error) {
+        setRouteHealthMessage("노선 상태 불러오기 실패 · 잠시 후 자동 재시도");
         updateLocationInfo([], null, `실시간 데이터 불러오기 실패: ${error.message}`);
       } finally {
         state.trainsFetchInFlight = false;
@@ -5365,6 +5392,7 @@
               ...row,
             };
           }
+          renderRouteHealthPanel();
           refreshTrainView({ liveOnly: true });
           if (state.selectedTrainId) {
             const selected = state.trainById[String(state.selectedTrainId)];

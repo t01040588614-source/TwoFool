@@ -142,7 +142,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", **_socketio_init_kwargs())
 
 
 SIMULATION_INTERVAL_SECONDS = 10 if _render_lite_mode() else 3
-_startup_state = {"ready": False, "error": None}
+_startup_state = {"ready": False, "error": None, "trains_ready": False}
 _startup_lock = threading.Lock()
 _startup_init_started = False
 _simulator_started = False
@@ -459,10 +459,18 @@ def health():
     else:
         status = "starting"
 
+    tracked = 0
+    if _startup_state["ready"] and not _startup_state["error"]:
+        try:
+            tracked = _query_dashboard_train_locations().count()
+        except Exception:
+            tracked = 0
     payload = {
         "status": status,
         "message": "Backend server is running",
         "db_ready": _startup_state["ready"] and not _startup_state["error"],
+        "trains_ready": bool(_startup_state.get("trains_ready")) and tracked > 0,
+        "tracked_train_count": tracked,
         **({"init_error": _startup_state["error"]} if _startup_state["error"] else {}),
     }
     if status != "starting":
@@ -3709,9 +3717,20 @@ def scmaglev_dashboard_action():
 @app.route("/api/scmaglev/dashboard/trains", methods=["GET"])
 def scmaglev_dashboard_trains():
     status_filter = request.args.get("status", "").strip().lower()
+    if not _startup_state["ready"]:
+        return jsonify({
+            "trains": [],
+            "status_filter": status_filter or "all",
+            "starting": True,
+        })
     try:
-        locations = TrainLocation.query.order_by(
-            TrainLocation.train_id.asc()).all()
+        locations = _query_dashboard_train_locations().all()
+        if not locations:
+            return jsonify({
+                "trains": [],
+                "status_filter": status_filter or "all",
+                "starting": True,
+            })
         payload = []
         with _db_write_lock:
             with db.session.no_autoflush:
@@ -5314,7 +5333,13 @@ def initialize_scmaglev_data():
                     f"[SCMAGLEV] Render lite: 지도 추적 {tracked}대 (신규 {created}대).",
                     flush=True,
                 )
-            print("[SCMAGLEV] 기본 DB 준비 완료 · API 사용 가능", flush=True)
+            tracked_count = _query_dashboard_train_locations().count()
+            _startup_state["trains_ready"] = tracked_count > 0
+            print(
+                f"[SCMAGLEV] 기본 DB 준비 완료 · 추적 열차 {tracked_count}대 · API 사용 가능",
+                flush=True,
+            )
+        _startup_state["ready"] = True
         start_location_simulator()
         if not _render_lite_mode():
             start_retrain_scheduler(app)
@@ -5328,7 +5353,6 @@ def initialize_scmaglev_data():
         app.logger.exception("SCMAGLEV 데이터 초기화 실패")
         _startup_state["error"] = str(exc)
         print(f"[SCMAGLEV] DB 초기화 오류: {exc}", flush=True)
-    finally:
         _startup_state["ready"] = True
 
 
