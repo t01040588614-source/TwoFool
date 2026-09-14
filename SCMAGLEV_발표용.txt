@@ -79,8 +79,8 @@
 ■ 5. 데모 계정 (발표자용 — 화면에는 노출하지 않음)
 --------------------------------------------------------------------------------
 [관제사 — controller]
-  아이디 : gygs1010
-  비밀번호 : zxc123123
+  아이디 : book\.env 의 CONTROLLER_USERNAME (기본 gygs1010)
+  비밀번호 : book\.env 의 CONTROLLER_PASSWORD (코드/GitHub에 저장 금지)
   → 대시보드 「관제 로그인」 후 ACK·운영액션·AI 발송 사용
 
 [승객]
@@ -203,7 +203,7 @@
   ② 지도 — 줌 아웃(클러스터) / 줌 인(개별 열차) / 노선 탭
   ③ 「AI · 승객 연동 · 인수인계」 패널 — 신뢰도·현재 기준
 
-[3:00] 관제 로그인 (gygs1010)
+[3:00] 관제 로그인 (CONTROLLER_USERNAME / CONTROLLER_PASSWORD)
   ① 빠른 액션 또는 AI 지연안내 발송 데모
   ② 이벤트 로그에서 미ACK 건 선택
   ③ 1-Click 대응 + AI 권장 조치 3줄 자동 생성
@@ -303,7 +303,7 @@ CONTROLLER_PASSWORD       | X    | 관제 시드 비밀번호
 페이지 안 열림                    | run_server.bat 재실행, 5001 포트 확인
 GPT 배지가 규칙 기반              | .env Key 확인 + 서버 재시작
 지도 로딩만 계속                  | Ctrl+F5, F12 Console 오류 확인
-관제 버튼 disabled                | gygs1010 로그인
+관제 버튼 disabled                | 관제(controller) 로그인
 결제창 안 뜸                      | 토스 테스트 키 또는 MOCK_ONLY=1
 database locked                   | 서버 1개만 실행, app.db 잠금 해제
 

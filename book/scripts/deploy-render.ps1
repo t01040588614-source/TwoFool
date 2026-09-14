@@ -125,6 +125,11 @@ if ($existing) {
 }
 
 Write-Host ">>> 새 Web Service 생성 (Existing Image)..."
+$controllerPasswordBytes = New-Object byte[] 24
+$controllerPasswordRng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$controllerPasswordRng.GetBytes($controllerPasswordBytes)
+$generatedControllerPassword = [System.Convert]::ToBase64String($controllerPasswordBytes)
+
 $body = @{
     type    = "web_service"
     name    = $ServiceName
@@ -135,6 +140,8 @@ $body = @{
     }
     envVars = @(
         @{ key = "JWT_SECRET_KEY"; value = "scmaglev-render-jwt-secret-change-me-32chars" }
+        @{ key = "CONTROLLER_USERNAME"; value = "gygs1010" }
+        @{ key = "CONTROLLER_PASSWORD"; value = $generatedControllerPassword }
         @{ key = "SCMAGLEV_MAX_TRACKED_TRAINS"; value = "200" }
         @{ key = "TOSS_PAYMENTS_MOCK_ONLY"; value = "1" }
         @{ key = "OPENAI_ENABLED"; value = "auto" }

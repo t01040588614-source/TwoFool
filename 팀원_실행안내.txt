@@ -39,7 +39,8 @@ SCMAGLEV 기차 프로젝트 — 팀원 실행 안내
    - 관제 대시보드: http://127.0.0.1:5001/dashboard
 
 7) 관제 로그인 (대시보드 ACK/운영 액션)
-   - 기본 계정: gygs1010 / zxc123123
+   - 관제 계정: book\.env 의 CONTROLLER_USERNAME / CONTROLLER_PASSWORD
+     (미설정 시 서버 콘솔에 임시 비밀번호가 출력됩니다)
    - 로그인 후 "미확인 전체 ACK" 사용
 
 8) 자주 나는 오류

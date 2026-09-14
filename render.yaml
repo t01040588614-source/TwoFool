@@ -11,6 +11,10 @@ services:
     envVars:
       - key: JWT_SECRET_KEY
         generateValue: true
+      - key: CONTROLLER_USERNAME
+        value: "gygs1010"
+      - key: CONTROLLER_PASSWORD
+        generateValue: true
       - key: SCMAGLEV_MAX_TRACKED_TRAINS
         value: "200"
       - key: TOSS_PAYMENTS_MOCK_ONLY

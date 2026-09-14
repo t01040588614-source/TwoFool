@@ -39,6 +39,8 @@ cd "book"
 | 변수 | 값 |
 |------|-----|
 | `JWT_SECRET_KEY` | Generate Secret |
+| `CONTROLLER_USERNAME` | `gygs1010` (또는 원하는 ID) |
+| `CONTROLLER_PASSWORD` | Generate Secret (관제 비밀번호) |
 | `SCMAGLEV_MAX_TRACKED_TRAINS` | `200` |
 | `TOSS_PAYMENTS_MOCK_ONLY` | `1` |
 | `OPENAI_API_KEY` | (선택) |
@@ -54,7 +56,8 @@ cd "book"
 ---
 
 ## 관제 로그인
-- `gygs1010` / `zxc123123`
+- Render 대시보드 → Environment → `CONTROLLER_USERNAME` / `CONTROLLER_PASSWORD` 확인
+- 비밀번호는 GitHub·코드에 저장하지 마세요
 
 ## 참고
 - 무료 플랜: 15분 미사용 시 sleep → 첫 접속 30초~3분

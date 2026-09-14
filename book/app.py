@@ -1253,7 +1253,14 @@ def seed_default_operator_account():
             if not email_owner or email_owner.id == user.id:
                 user.email = email
     else:
-        password = password_override or "zxc123123"
+        password = password_override
+        if not password:
+            password = secrets.token_urlsafe(18)
+            print(
+                f"[SCMAGLEV] CONTROLLER_PASSWORD 미설정 — 관제 '{username}' "
+                f"임시 비밀번호: {password} (.env 또는 Render env에 저장 권장)",
+                flush=True,
+            )
         hashed_password = generate_password_hash(password)
         existing_email = User.query.filter_by(email=email).first()
         if existing_email:
