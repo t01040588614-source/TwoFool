@@ -22,17 +22,16 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import Config
-from extensions import db, jwt
 from congestion_ai.constants import WARMUP_ON_STARTUP
 from congestion_ai.data_collector import (
     bootstrap_operational_history,
     get_data_collection_stats,
-    label_to_ratio,
     record_operational_snapshot,
 )
 from congestion_ai.model_registry import list_versions, promote_version
 from congestion_ai.retrain_scheduler import run_scheduled_retrain, should_retrain, start_retrain_scheduler
 from congestion_ai.service import get_forecast_service
+from extensions import db, jwt
 from ml_predictor import (
     compare_congestion_models,
     forecast_congestion,
@@ -123,17 +122,26 @@ def jwt_needs_fresh_token_callback(_jwt_header, _jwt_payload):
     }), 401
 
 
+def _render_lite_mode() -> bool:
+    return os.getenv("SCMAGLEV_RENDER_LITE", "0").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 def _socketio_init_kwargs():
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return {}
     if os.environ.get("PORT"):
+        if _render_lite_mode():
+            return {"async_mode": "threading"}
         return {"async_mode": "eventlet"}
     return {}
 
 
 socketio = SocketIO(app, cors_allowed_origins="*", **_socketio_init_kwargs())
 
-SIMULATION_INTERVAL_SECONDS = 3
+
+SIMULATION_INTERVAL_SECONDS = 10 if _render_lite_mode() else 3
 _startup_state = {"ready": False, "error": None}
 _startup_lock = threading.Lock()
 _startup_init_started = False
@@ -150,8 +158,11 @@ ALARM_COOLDOWN_SECONDS = 45
 alarm_last_emitted_at = {}
 SERVICE_DAY_RESET_HOUR = 4
 DIRECT_SERVICE_WINDOW_HOURS = 4
-MAX_DASHBOARD_TRACKED_TRAINS = int(
-    os.getenv("SCMAGLEV_MAX_TRACKED_TRAINS", "688"))
+MAX_DASHBOARD_TRACKED_TRAINS = (
+    30
+    if _render_lite_mode()
+    else int(os.getenv("SCMAGLEV_MAX_TRACKED_TRAINS", "688"))
+)
 DIRECT_DASHBOARD_HUB_CODES = frozenset(
     {
         "SEO",
@@ -469,6 +480,10 @@ _STARTUP_PUBLIC_GET_PATHS = frozenset({
     "/api/scmaglev/dashboard/trains",
     "/api/scmaglev/dashboard/station-heatmap",
 })
+_STARTUP_PUBLIC_POST_PATHS = frozenset({
+    "/api/auth/login",
+    "/api/auth/register",
+})
 
 
 @app.before_request
@@ -476,6 +491,8 @@ def guard_until_db_ready():
     if _startup_state["ready"] or not request.path.startswith("/api/"):
         return None
     if request.path in _STARTUP_PUBLIC_GET_PATHS and request.method == "GET":
+        return None
+    if request.path in _STARTUP_PUBLIC_POST_PATHS and request.method == "POST":
         return None
     if request.path.startswith("/api/scmaglev/trains/search") and request.method == "GET":
         return None
@@ -1191,7 +1208,10 @@ def seed_scmaglev_data():
                     arrival_time=arrival_time,
                 )
             )
-            if not TrainLocation.query.filter_by(train_id=train.id).first():
+            if (
+                (not _render_lite_mode() or app.config.get("TESTING"))
+                and not TrainLocation.query.filter_by(train_id=train.id).first()
+            ):
                 db.session.add(
                     TrainLocation(
                         train_id=train.id,
@@ -1786,7 +1806,7 @@ def run_location_simulator():
             try:
                 with _db_write_lock:
                     with db.session.no_autoflush:
-                        locations = TrainLocation.query.all()
+                        locations = _query_dashboard_train_locations().all()
                         for location in locations:
                             row = _update_train_location(location, defer_observation=True)
                             if not row:
@@ -1802,7 +1822,7 @@ def run_location_simulator():
                                 }
                             )
                     commit_with_sqlite_retry(max_attempts=8, delay_seconds=0.25)
-                    if observation_batch:
+                    if observation_batch and not _render_lite_mode():
                         try:
                             record_observations_batch(observation_batch)
                         except Exception as exc:
@@ -2157,6 +2177,19 @@ def seed_direct_national_trains():
     if created:
         commit_with_sqlite_retry()
         print(f"[SCMAGLEV] 직통 편성 시드 완료: {created}건", flush=True)
+
+
+def _dashboard_tracked_train_ids():
+    return set(select_dashboard_tracked_train_ids())
+
+
+def _query_dashboard_train_locations():
+    query = TrainLocation.query.order_by(TrainLocation.train_id.asc())
+    if _render_lite_mode():
+        keep_ids = _dashboard_tracked_train_ids()
+        if keep_ids:
+            query = query.filter(TrainLocation.train_id.in_(keep_ids))
+    return query
 
 
 def prune_dashboard_tracking():
@@ -2864,8 +2897,7 @@ def scmaglev_cancel_reservation(reservation_id):
 
 @app.route("/api/scmaglev/train-locations", methods=["GET"])
 def scmaglev_train_locations():
-    locations = TrainLocation.query.order_by(
-        TrainLocation.train_id.asc()).all()
+    locations = _query_dashboard_train_locations().all()
     payload = []
     try:
         with _db_write_lock:
@@ -2874,7 +2906,8 @@ def scmaglev_train_locations():
                     item = _update_train_location(location, defer_observation=True)
                     if item:
                         payload.append(item)
-            commit_with_sqlite_retry(max_attempts=6, delay_seconds=0.2)
+            if locations:
+                commit_with_sqlite_retry(max_attempts=6, delay_seconds=0.2)
     except OperationalError as exc:
         db.session.rollback()
         app.logger.warning("train-locations update failed: %s", exc)
@@ -3151,7 +3184,6 @@ def build_dashboard_summary():
     fault_trains = []
     fault_counts = {}
     predicted = []
-    current_hour = current_time.hour
     for location in locations:
         train = db.session.get(Train, location.train_id)
         if not train:
@@ -3824,20 +3856,15 @@ def scmaglev_forecast_congestion():
             train_snapshot = _update_train_location(location) or {}
             history = list(train_history.get(train_id, []))
 
-    try:
-        forecast = forecast_congestion(
-            hour=hour,
-            route_name=route_name,
-            recent_passengers=recent_passengers,
-            is_event_day=is_event_day,
-            train_id=train_id,
-            train_snapshot=train_snapshot,
-            history=history,
-        )
-    except Exception as exc:
-        app.logger.exception("congestion forecast failed: %s", exc)
-        return jsonify({"message": f"혼잡도 예측 실패: {exc}"}), 500
-
+    forecast = forecast_congestion(
+        hour=hour,
+        route_name=route_name,
+        recent_passengers=recent_passengers,
+        is_event_day=is_event_day,
+        train_id=train_id,
+        train_snapshot=train_snapshot,
+        history=history,
+    )
     return jsonify({"forecast": forecast})
 
 
@@ -4176,10 +4203,12 @@ def build_schedule_recommendation_candidate(schedule, now):
         Route, train.route_id) if train and train.route_id else None
     route_name = route.name if route else schedule_data.get(
         "train_name") or "전국 통합"
+    hour = schedule.departure_time.hour
+    passengers = random.randint(250, 1400)
     comparison = compare_congestion_models(
-        hour=schedule.departure_time.hour,
+        hour=hour,
         route_name=route_name,
-        recent_passengers=random.randint(250, 1400),
+        recent_passengers=passengers,
         is_event_day=False,
     )
     risk_score = float(comparison["ensemble"]["risk_score"])
@@ -5224,10 +5253,15 @@ def add_email_column_for_existing_database():
 def _run_heavy_startup_tasks():
     try:
         with app.app_context():
+            if _render_lite_mode():
+                seed_default_operator_account()
+                print("[SCMAGLEV] Render lite: heavy startup skipped.", flush=True)
+                return
             bootstrap_direct_fleet_live_ops()
             ensure_demo_fault_trains()
             seed_default_operator_account()
-            created = bootstrap_operational_history(target_samples=600)
+            bootstrap_target = 150 if os.environ.get("PORT") else 600
+            created = bootstrap_operational_history(target_samples=bootstrap_target)
             if created:
                 print(f"[SCMAGLEV] 혼잡도 bootstrap 관측 {created}건 생성.", flush=True)
             if WARMUP_ON_STARTUP:
@@ -5258,12 +5292,27 @@ def initialize_scmaglev_data():
             ensure_reservation_columns_for_existing_database()
             print("[SCMAGLEV] 역·노선·편성 시드 중...", flush=True)
             seed_scmaglev_data()
-            seed_direct_national_trains()
-            prune_dashboard_tracking()
-            ensure_direct_train_locations()
+            if not _render_lite_mode():
+                seed_direct_national_trains()
+                prune_dashboard_tracking()
+                ensure_direct_train_locations()
+            else:
+                seed_direct_hub_pairs()
+                seed_default_operator_account()
+                prune_dashboard_tracking()
+                created = ensure_direct_train_locations()
+                bootstrap_tracked_fleet_live_ops()
+                tracked = len(_dashboard_tracked_train_ids())
+                print(
+                    f"[SCMAGLEV] Render lite: 지도 추적 {tracked}대 (신규 {created}대).",
+                    flush=True,
+                )
             print("[SCMAGLEV] 기본 DB 준비 완료 · API 사용 가능", flush=True)
         start_location_simulator()
-        start_retrain_scheduler(app)
+        if not _render_lite_mode():
+            start_retrain_scheduler(app)
+        elif _render_lite_mode():
+            print("[SCMAGLEV] Render lite: 경량 위치 시뮬레이터 시작.", flush=True)
         if os.environ.get("PYTEST_CURRENT_TEST"):
             _run_heavy_startup_tasks()
         else:

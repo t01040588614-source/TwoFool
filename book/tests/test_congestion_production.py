@@ -1,14 +1,15 @@
 import json
 
-import pytest
-
-from congestion_ai.data_collector import bootstrap_operational_history, get_data_collection_stats, record_operational_snapshot
+from congestion_ai.data_collector import (
+    bootstrap_operational_history,
+    get_data_collection_stats,
+    record_operational_snapshot,
+)
 from congestion_ai.model_registry import get_active_version, list_versions, promote_version
 from congestion_ai.real_data import build_training_dataset, load_operational_frame
-from congestion_ai.retrain_scheduler import should_retrain
 from congestion_ai.service import get_forecast_service
 from extensions import db
-from models import CongestionObservation, ModelTrainingRun
+from models import ModelTrainingRun
 
 
 def test_operational_observation_collection(client):
@@ -58,7 +59,7 @@ def test_model_versioning_and_promote(client):
         service2 = get_forecast_service()
         metadata2 = service2.train_all(force=True, promote=True)
         old_version = version
-        new_version = metadata2["version"]
+        metadata2["version"]
         promote_version(old_version)
         assert get_active_version() == old_version
 

@@ -54,6 +54,9 @@ if errorlevel 1 (
 
 set PYTHONUNBUFFERED=1
 set FLASK_APP=app.py
+rem 로컬 개발은 Render lite 모드 비활성 (시스템 env SCMAGLEV_RENDER_LITE=1 이 있어도 무시)
+set SCMAGLEV_RENDER_LITE=0
+set CONGESTION_DISABLE_DL=0
 
 python -c "import importlib.util; import sys; sys.exit(0 if importlib.util.find_spec('flask') else 1)"
 if errorlevel 1 (

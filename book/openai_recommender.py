@@ -162,5 +162,5 @@ def enhance_passenger_recommendations(recommendations, context=None):
         parsed = json.loads(content)
         enhanced = _merge_openai_recommendations(recommendations, parsed)
         return enhanced, _build_ai_meta(source="openai")
-    except (RuntimeError, json.JSONDecodeError, TypeError, ValueError):
+    except (RuntimeError, json.JSONDecodeError, TypeError, ValueError, OSError):
         return recommendations, _build_ai_meta(source="rule_based", fallback=True)

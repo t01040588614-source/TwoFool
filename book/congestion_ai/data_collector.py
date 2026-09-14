@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 import threading
 import time
-from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func
 from sqlalchemy.exc import OperationalError

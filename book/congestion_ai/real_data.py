@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-import numpy as np
 import pandas as pd
 
 from congestion_ai.constants import (

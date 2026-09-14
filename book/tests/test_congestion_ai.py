@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from congestion_ai.ensemble import blend_predictions, compute_ensemble_weights, ratio_to_label
 from congestion_ai.features import build_feature_matrix, build_lstm_sequences
@@ -91,7 +90,7 @@ def test_forecast_api(client):
     forecast = response.get_json()["forecast"]
     assert forecast["forecasts"]["10"]["ensemble_pct"] >= 5
     assert forecast["models"]["ml"]["model"] == "RandomForestRegressor"
-    assert forecast["models"]["dl"]["model"] == "LSTM"
+    assert forecast["models"]["dl"]["model"] in {"LSTM", "LSTM (disabled)"}
 
 
 def test_model_info_api(client):

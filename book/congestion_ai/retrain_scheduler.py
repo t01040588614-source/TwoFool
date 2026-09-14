@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import os
 import threading
 import time
-from datetime import UTC, datetime, timedelta
 
 from congestion_ai.constants import (
     MIN_NEW_SAMPLES_FOR_RETRAIN,
     RETRAIN_CHECK_INTERVAL_SEC,
     RETRAIN_INTERVAL_HOURS,
 )
-from congestion_ai.model_registry import get_active_version, list_versions
+from congestion_ai.model_registry import list_versions
 from congestion_ai.real_data import count_observations_since
-from extensions import db
 from models import ModelTrainingRun
 
 _scheduler_started = False
